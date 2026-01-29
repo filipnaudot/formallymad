@@ -60,6 +60,15 @@ class Agent:
             tool_choice="auto"
         )
         return response.choices[0].message
+
+    def next_assistant_message(self):
+        assistant_message = self._execute_llm_call(self.prompt)
+        tool_calls = assistant_message.tool_calls or []
+        if not tool_calls:
+            self._format_prompt("assistant", assistant_message.content)
+            return {"type": "final", "content": assistant_message.content}
+        self._format_prompt("assistant", assistant_message.content, tool_calls)
+        return {"type": "tools", "tool_calls": tool_calls}
     
     def _format_prompt(self, role, input, tool_calls=None):
         message = {
@@ -68,32 +77,3 @@ class Agent:
         }
         if tool_calls: message["tool_calls"] = tool_calls
         self.prompt.append(message)
-
-    def run_turn(self, user_input: str, on_tool_call=None) -> str:
-        self._format_prompt("user", user_input)
-        while True:
-            assistant_message = self._execute_llm_call(self.prompt)
-            tool_calls = assistant_message.tool_calls or []
-            if not tool_calls:
-                self._format_prompt("assistant", assistant_message.content)
-                return assistant_message.content # type: ignore
-            
-            self._format_prompt("assistant", assistant_message.content, tool_calls)
-            for call in tool_calls:
-                name = call.function.name # type: ignore
-                args = json.loads(call.function.arguments or "{}") # type: ignore
-                if on_tool_call is not None:
-                    on_tool_call(name, args)
-                tool = TOOL_REGISTRY[name]
-                signature = inspect.signature(tool)
-                kwargs = {
-                    param: args.get(param)
-                    for param in signature.parameters
-                    if param in args
-                }
-                resp = tool(**kwargs)
-                self.prompt.append({
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": json.dumps(resp)
-                })
