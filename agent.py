@@ -17,11 +17,12 @@ class Agent:
         model: str = "gpt-5",
         api_key: str | None = None,
         system_prompt: str = SYSTEM_PROMPT,
+        executor: bool = False,
     ):
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
-        self.tools = self._build_tools()
+        self.tools = None if executor else self._build_tools()
         self.SYSTEM_PROMPT = system_prompt
         self.prompt = self._reset_prompt()
 
@@ -52,13 +53,15 @@ class Agent:
         return tools
 
     def _execute_llm_call(self, prompt: List[Dict[str, str]]):
-        response = self.openai_client.chat.completions.create(
-            model=self.model,
-            messages=prompt, # type: ignore
-            max_completion_tokens=2000,
-            tools=self.tools, # type: ignore
-            tool_choice="auto"
-        )
+        params: Dict[str, Any] = {
+            "model": self.model,
+            "messages": prompt, # type: ignore
+            "max_completion_tokens": 2000,
+        }
+        if self.tools is not None:
+            params["tools"] = self.tools
+            params["tool_choice"] = "auto"
+        response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
 
     def next_assistant_message(self):

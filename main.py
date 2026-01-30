@@ -5,6 +5,7 @@ from pyfiglet import Figlet
 
 from agent import Agent
 from tools import TOOL_REGISTRY
+from prompts import SYSTEM_PROMPT, EXECUTOR_PROMPT, EXECUTOR_TIE_PROMPT, EXECUTOR_TIE_ERROR_PROMPT
 
 USER_COLOR = "\u001b[94m"
 ASSISTANT_COLOR = "\u001b[93m"
@@ -14,7 +15,10 @@ GRAY = "\u001b[38;5;245m"
 def main() -> None:
     print(Figlet(font="big").renderText("Formally MAD"))
 
-    agents = [Agent(), Agent(), Agent()]
+    workers = [Agent(system_prompt=SYSTEM_PROMPT),
+               Agent(system_prompt=SYSTEM_PROMPT),
+               Agent(system_prompt=SYSTEM_PROMPT)]
+    executor = Agent(system_prompt=SYSTEM_PROMPT + EXECUTOR_PROMPT, executor=True)
 
     while True:
         try:
@@ -22,25 +26,22 @@ def main() -> None:
         except (KeyboardInterrupt, EOFError):
             break
 
-        for agent in agents:
-            agent._format_prompt("user", user_input)
+        for agent in workers: agent._format_prompt("user", user_input)
+        executor._format_prompt("user", f"The user asked: {user_input}.\n This will now be passed to the workers.")
 
         assistant_text = ""
         while True:
             proposals = []
             extra_calls = []
-            finals = 0
-            with ThreadPoolExecutor(max_workers=len(agents)) as executor:
-                futures = [(agent, executor.submit(agent.next_assistant_message)) for agent in agents]
+            with ThreadPoolExecutor(max_workers=len(workers)) as pool:
+                futures = [(agent, pool.submit(agent.next_assistant_message)) for agent in workers]
                 for agent, future in futures:
                     step = future.result()
-                    if step["type"] == "final":
-                        finals += 1
-                        assistant_text = step["content"] or ""
-                        continue
+                    if step["type"] == "final": continue
+                    
                     tool_calls = step["tool_calls"]
-                    if not tool_calls:
-                        continue
+                    if not tool_calls: continue
+                    
                     call = tool_calls[0]
                     name = call.function.name # type: ignore
                     args = json.loads(call.function.arguments or "{}") # type: ignore
@@ -49,19 +50,18 @@ def main() -> None:
                     if len(tool_calls) > 1:
                         extra_calls.append((agent, tool_calls[1:]))
 
-            if finals == len(agents): break
-            if not proposals: continue
-
+            if not proposals: continue            
 
             ### THIS IS A TRMPORARY MAJORITY VOTE ###
             # TODO: This should be done using a QBAF
-            tool_call_key, tool_name, tool_call_args = _majority_vote(proposals)
+            tool_call_key, tool_name, tool_call_args = _majority_vote(proposals, executor)
             ### END OF MAJORITY VOTE ###
+            
             tool_call_result = _tool_call(tool_call_args, tool_name)
             print(f"{GRAY}Executed winner tool: {tool_name}{RESET_COLOR}")
 
             for agent, call, name, args in proposals:
-                if (name, json.dumps(args, sort_keys=True)) == tool_call_key:
+                if name == tool_call_key:
                     content = json.dumps(tool_call_result)
                 else:
                     content = json.dumps({
@@ -74,6 +74,7 @@ def main() -> None:
                     "tool_call_id": call.id,
                     "content": content
                 })
+            _append_executor_tool_result(executor, tool_name, tool_call_args, tool_call_result)
             for agent, calls in extra_calls:
                 for extra_call in calls:
                     agent.prompt.append({
@@ -86,6 +87,9 @@ def main() -> None:
                         })
                     })
 
+            executor_step = executor.next_assistant_message()
+            assistant_text = executor_step["content"] or ""
+            break
         print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
 
 
@@ -101,19 +105,85 @@ def _tool_call(winner_args, tool_name):
     return winner_result
 
 
-def _majority_vote(proposals):
+def _majority_vote(proposals, executor_agent):
     counts = {}
     ordered = []
     for _, _, name, args in proposals:
-        key = (name, json.dumps(args, sort_keys=True))
+        key = name
         counts[key] = counts.get(key, 0) + 1
-        if key not in ordered:
-            ordered.append(key)
+        if key not in ordered: ordered.append(key)
     winner_key = max(ordered, key=lambda k: counts[k])
-    winner_name, winner_args_json = winner_key
-    winner_args = json.loads(winner_args_json)
+    winner_name = winner_key
+    winner_args = _majority_vote_params(proposals, winner_name, executor_agent)
     print(f"{GRAY}Majority vote winner: {winner_name} args={winner_args}{RESET_COLOR}")
-    return winner_key,winner_name,winner_args
+    return winner_key, winner_name, winner_args
+
+
+def _majority_vote_params(proposals, winner_name, executor_agent):
+    candidates = [args for _, _, name, args in proposals if name == winner_name]
+    if not candidates: return {}
+    
+    all_params = set()
+    for args in candidates: all_params.update(args.keys())
+    
+    merged = {}
+    for param in sorted(all_params):
+        values = []
+        for args in candidates:
+            if param in args:
+                values.append(args[param])
+        if not values: continue
+        
+        counts = {}
+        ordered = []
+        for val in values:
+            key = json.dumps(val, sort_keys=True)
+            counts[key] = counts.get(key, 0) + 1
+            if key not in ordered:
+                ordered.append(key)
+        max_count = max(counts.values())
+        winners = [k for k in ordered if counts[k] == max_count]
+        if len(winners) > 1:
+            chosen = _ask_executor_param_tie(executor_agent, param, [json.loads(k) for k in winners])
+        else:
+            chosen = json.loads(winners[0])
+        merged[param] = chosen
+    return merged
+
+
+def _ask_executor_param_tie(executor_agent, param, options):
+    prompt = (
+        f"{EXECUTOR_TIE_PROMPT.strip()}\n"
+        f"Parameter: {param}\n"
+        f"Options (0-indexed): {json.dumps(options)}"
+    )
+    for _ in range(3):
+        executor_agent._format_prompt("user", prompt)
+        step = executor_agent.next_assistant_message()
+        if step["type"] == "final":
+            try:
+                data = json.loads(step["content"] or "{}")
+                idx = int(data.get("choice"))
+                if 0 <= idx < len(options):
+                    return options[idx]
+            except (ValueError, json.JSONDecodeError, TypeError):
+                pass
+        prompt = (
+            f"{EXECUTOR_TIE_ERROR_PROMPT.strip()}\n"
+            f"Parameter: {param}\n"
+            f"Options (0-indexed): {json.dumps(options)}"
+        )
+    return options[0]
+
+
+def _append_executor_tool_result(executor_agent, tool_name, tool_args, tool_result):
+    message = (
+        "Tool executed by workers in response to the users query.\n"
+        f"Tool: {tool_name}\n"
+        f"Args: {json.dumps(tool_args, sort_keys=True)}\n"
+        f"Result: {json.dumps(tool_result)}"
+    )
+    executor_agent._format_prompt("user", message)
 
 
 if __name__ == "__main__":
