@@ -3,26 +3,43 @@ import json
 import os
 
 from openai import OpenAI
+from pydantic import BaseModel
 from dotenv import load_dotenv
+from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
 from tools import TOOL_REGISTRY
-from prompts import WORKER_PROMPT
+from prompts import COORDINATOR_PROMPT, WORKER_PROMPT
 
 load_dotenv()
 
-class Agent:
+
+
+
+class AgentInterface(ABC):
+    id: str
+    @abstractmethod
+    def next_assistant_message(self) -> Dict[str, Any]: ...
+
+
+
+
+##################
+# CoordinatorAgent
+##################
+class CoordinatorAgent(AgentInterface):
     def __init__(
         self,
+        id: str = "Coordinator agent",
         model: str = "gpt-5",
         api_key: str | None = None,
-        system_prompt: str = WORKER_PROMPT,
-        coordinator: bool = False,
+        system_prompt: str = COORDINATOR_PROMPT,
     ):
+        self.id = id
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
-        self.tools = None if coordinator else self._build_tools()
+        self.tools = self._build_tools()
         self.SYSTEM_PROMPT = system_prompt
         self.prompt = self._reset_prompt()
 
@@ -60,7 +77,7 @@ class Agent:
         }
         if self.tools is not None:
             params["tools"] = self.tools
-            params["tool_choice"] = "required"
+            params["tool_choice"] = "auto"
         response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
 
@@ -80,3 +97,64 @@ class Agent:
         }
         if tool_calls: message["tool_calls"] = tool_calls
         self.prompt.append(message)
+
+
+
+
+
+
+
+
+##################
+# WorkerAgent
+##################
+class ActionEvent(BaseModel):
+    tool_name: str
+    motivation: str
+
+
+class WorkerAgent(AgentInterface):
+    def __init__(
+        self,
+        id: str = "Worker agent",
+        model: str = "gpt-5",
+        api_key: str | None = None,
+        system_prompt: str = WORKER_PROMPT,
+    ):
+        self.id = id
+        if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
+        self.model = model
+        self.openai_client = OpenAI(api_key=api_key)
+        self.SYSTEM_PROMPT = system_prompt
+        self.prompt = self._reset_prompt()
+        self.tools = self._build_tools()
+
+    def _reset_prompt(self) -> List[Dict[str, str]]:
+        return [{"role": "system", "content": self.SYSTEM_PROMPT}]
+
+    def _execute_llm_call(self, prompt: List[Dict[str, str]]) -> ActionEvent:
+        prompt = prompt + [{"role": "system", "content": self.tools}]
+        response = self.openai_client.responses.parse(
+            model=self.model,
+            input=prompt, # type: ignore
+            text_format=ActionEvent,
+        )
+        return response.output_parsed # type: ignore
+    
+    def _build_tools(self) -> str:
+        tools = []
+        for tool_name, tool in TOOL_REGISTRY.items():
+            tool_description = (tool.__doc__ or "").strip()
+            tools.append(f"- {tool_name}: {tool_description}" if tool_description else f"- {tool_name}")
+        return "Available tools:\n" + "\n".join(tools)
+
+    def _format_prompt(self, role, input):
+        self.prompt.append({
+            "role": role,
+            "content": "" if input is None else input.strip()
+        })
+
+    def next_assistant_message(self) -> Dict[str, Any]:
+        action = self._execute_llm_call(self.prompt)
+        self._format_prompt("assistant", json.dumps(action.model_dump()))
+        return {"type": "action", **action.model_dump()}
