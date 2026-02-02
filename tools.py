@@ -117,10 +117,19 @@ def create_directory_tool(path: str = ".") -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+def skip_tool(reason: str = "no_tool_needed") -> Dict[str, Any]:
+    """
+    Explicitly skip turn when when no tool execution is appropriate.
+    :param reason: Short reason for skipping.
+    :return: A dictionary indicating the skip.
+    """
+    print(f"{GRAY}Skipping tool call...{RESET}")
+    return {"skipped": True, "reason": reason}
 
 TOOL_REGISTRY = {
     "read_file": read_file_tool,
     "list_files": list_files_tool,
     "edit_file": edit_file_tool,
-    "create_directory": create_directory_tool
+    "create_directory": create_directory_tool,
+    "skip": skip_tool,
 }

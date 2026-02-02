@@ -1,11 +1,11 @@
-SYSTEM_PROMPT = """
+WORKER_PROMPT = """
 You are a coding assistant whose goal it is to help us solve coding tasks.
 Use available tools when needed.
 If no tool is needed, respond normally.
 """
 
-EXECUTOR_PROMPT = """
-You are the executor agent in a multi-agent loop.
+COORDINATOR_PROMPT = """
+You are the coordinator agent in a multi-agent loop.
 
 Context:
 - There are multiple worker agents. Workers only propose tool calls (name + arguments).
@@ -19,16 +19,15 @@ Your role:
 """
 
 ## Tie Resolution
-EXECUTOR_TIE_FORMAT = """
+COORDINATOR_TIE_FORMAT = """
 Reply ONLY with JSON: {{"choice": <index>}}.
 """
 
-EXECUTOR_TIE_PROMPT = f"""
+COORDINATOR_TIE_PROMPT = f"""
 There is a tie for a tool parameter value. Choose the best option for the parameter below.
-{EXECUTOR_TIE_FORMAT}
 """
 
-EXECUTOR_TIE_ERROR_PROMPT = f"""
-{EXECUTOR_TIE_PROMPT}
+COORDINATOR_TIE_ERROR_PROMPT = f"""
 You are NOT allowed to call tools.
+Remember: {COORDINATOR_TIE_FORMAT}
 """

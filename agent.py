@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from typing import Any, Dict, List
 
 from tools import TOOL_REGISTRY
-from prompts import SYSTEM_PROMPT
+from prompts import WORKER_PROMPT
 
 load_dotenv()
 
@@ -16,13 +16,13 @@ class Agent:
         self,
         model: str = "gpt-5",
         api_key: str | None = None,
-        system_prompt: str = SYSTEM_PROMPT,
-        executor: bool = False,
+        system_prompt: str = WORKER_PROMPT,
+        coordinator: bool = False,
     ):
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
-        self.tools = None if executor else self._build_tools()
+        self.tools = None if coordinator else self._build_tools()
         self.SYSTEM_PROMPT = system_prompt
         self.prompt = self._reset_prompt()
 
@@ -56,11 +56,11 @@ class Agent:
         params: Dict[str, Any] = {
             "model": self.model,
             "messages": prompt, # type: ignore
-            "max_completion_tokens": 2000,
+            "max_completion_tokens": 10000,
         }
         if self.tools is not None:
             params["tools"] = self.tools
-            params["tool_choice"] = "auto"
+            params["tool_choice"] = "required"
         response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
 
