@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pyfiglet import Figlet
 
 from agent import CoordinatorAgent, WorkerAgent
-from tools import TOOL_REGISTRY
+from tools import TOOL_REGISTRY, SKIP_TOOL_NAME
 
 
 
@@ -28,43 +28,46 @@ def main() -> None:
 
         for agent in workers: agent._format_prompt("user", user_input)
 
-        tool_proposals = []
-        with ThreadPoolExecutor(max_workers=len(workers)) as pool:
-            futures = [(agent, pool.submit(agent.next_assistant_message)) for agent in workers]
-            for agent, future in futures:
-                step = future.result()
-                tool_name = step["tool_name"]
-                motivation = step["motivation"]
-                tool_proposals.append((agent, tool_name, motivation))
-                print(f"{GRAY}Agent {agent.id} proposed tool: {tool_name}{RESET_COLOR}")
-        
-        # TODO: This should be done using a QBAF
-        tool_name = _majority_vote(tool_proposals)
-        if tool_name != "skip":    
-            coordinator._format_prompt("user", f"User input: {user_input}.\n The worker agents recommend tool: {tool_name}.")
-            coordinator._format_prompt("user", f"Call tool {tool_name} with parameters of your choice.")
-        else:
-            coordinator._format_prompt("user", f"User input: {user_input}.\n The worker agents recommend to not call a tool.")
-        coordinator_step = coordinator.next_assistant_message()
-        while coordinator_step["type"] == "tools":
-            coordinator_step = _handle_tool_call(coordinator, coordinator_step)
-        assistant_text = coordinator_step["content"] or ""
-        print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
+        while True:
+            tool_proposals = []
+            with ThreadPoolExecutor(max_workers=len(workers)) as pool:
+                futures = [(agent, pool.submit(agent.next_assistant_message)) for agent in workers]
+                for agent, future in futures:
+                    step = future.result()
+                    tool_name = step["tool_name"]
+                    motivation = step["motivation"]
+                    tool_proposals.append((agent, tool_name, motivation))
+                    print(f"{GRAY}Agent {agent.id} proposed tool: {tool_name}{RESET_COLOR}")
+            
+            # TODO: This should be done using a QBAF
+            tool_name = _majority_vote(tool_proposals)
+            if tool_name == SKIP_TOOL_NAME:
+                coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
+                assistant_text = coordinator.next_assistant_message()["content"] or ""
+                print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
+                break
+            
+            coordinator._format_prompt("user", f"[START USER INPUT] {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents have chosen tool: {tool_name} . Call tool {tool_name} with parameters of your choice.[END INFORMATION]")
+            coordinator_step = coordinator.next_assistant_message(tool_choice="required")
+            if coordinator_step["type"] == "tools":
+                _handle_tool_call(coordinator, workers, coordinator_step["tool_calls"])
+            # while coordinator_step["type"] == "tools":
+            #     coordinator_step = _handle_tool_call(coordinator, coordinator_step["tool_calls"])
+            # assistant_text = coordinator_step["content"] or ""
+            # print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
 
 
-def _handle_tool_call(agent, agent_tool_call):
-    tool_call = agent_tool_call["tool_calls"][0]
-    tool_name = tool_call.function.name # type: ignore
-    tool_call_args = json.loads(tool_call.function.arguments or "{}") # type: ignore
-    tool = TOOL_REGISTRY[tool_name]
-    tool_call_result = tool(**tool_call_args)
-    agent.prompt.append({
-        "role": "tool",
-        "tool_call_id": tool_call.id,
-        "content": json.dumps(tool_call_result)
-    })
-    agent_result = agent.next_assistant_message()
-    return agent_result
+def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerAgent], tool_calls):
+    for tool_call in tool_calls:
+        tool_name = tool_call.function.name # type: ignore
+        tool_call_args = json.loads(tool_call.function.arguments or "{}") # type: ignore
+        tool = TOOL_REGISTRY[tool_name]
+        tool_call_result = tool(**tool_call_args)
+        for agent in workers:
+            agent._format_prompt("user", f"[START TOOL RESULT] tool={tool_name} args={json.dumps(tool_call_args)} result={json.dumps(tool_call_result)} [END TOOL RESULT]",)
+        coordinator_agent._format_prompt("tool", json.dumps(tool_call_result), tool_call_id=tool_call.id)
+    # coordinator_agent_result = coordinator_agent.next_assistant_message()
+    # return coordinator_agent_result
 
 
 def _majority_vote(tool_proposals):

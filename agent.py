@@ -69,7 +69,7 @@ class CoordinatorAgent(AgentInterface):
             })
         return tools
 
-    def _execute_llm_call(self, prompt: List[Dict[str, str]]):
+    def _execute_llm_call(self, prompt: List[Dict[str, str]], tool_choice: str = "auto"):
         params: Dict[str, Any] = {
             "model": self.model,
             "messages": prompt, # type: ignore
@@ -77,12 +77,13 @@ class CoordinatorAgent(AgentInterface):
         }
         if self.tools is not None:
             params["tools"] = self.tools
-            params["tool_choice"] = "auto"
+            params["tool_choice"] = tool_choice
+            params["parallel_tool_calls"] = False
         response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
 
-    def next_assistant_message(self):
-        assistant_message = self._execute_llm_call(self.prompt)
+    def next_assistant_message(self, tool_choice: str = "auto"):
+        assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
         tool_calls = assistant_message.tool_calls or []
         if not tool_calls:
             self._format_prompt("assistant", assistant_message.content)
@@ -90,12 +91,13 @@ class CoordinatorAgent(AgentInterface):
         self._format_prompt("assistant", assistant_message.content, tool_calls)
         return {"type": "tools", "tool_calls": tool_calls}
     
-    def _format_prompt(self, role, input, tool_calls=None):
+    def _format_prompt(self, role, content, tool_call = None, tool_call_id = None):
         message = {
             "role": role,
-            "content": "" if input is None else input.strip()
+            "content": content
         }
-        if tool_calls: message["tool_calls"] = tool_calls
+        if tool_call is not None: message["tool_calls"] = tool_call
+        if tool_call_id is not None: message["tool_call_id"] = tool_call_id
         self.prompt.append(message)
 
 
