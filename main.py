@@ -37,13 +37,13 @@ def main() -> None:
                     tool_name = step["tool_name"]
                     motivation = step["motivation"]
                     tool_proposals.append((agent, tool_name, motivation))
-                    print(f"{GRAY}Agent {agent.id} proposed tool: {tool_name}{RESET_COLOR}")
+                    print(f"{GRAY}Agent {agent.id()} proposed tool: {tool_name}{RESET_COLOR}")
             
             # TODO: This should be done using a QBAF
             tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
-                assistant_text = coordinator.next_assistant_message()["content"] or ""
+                assistant_text = coordinator.next_assistant_message(tool_choice="none")["content"] or ""
                 print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
                 break
             
@@ -51,10 +51,6 @@ def main() -> None:
             coordinator_step = coordinator.next_assistant_message(tool_choice="required")
             if coordinator_step["type"] == "tools":
                 _handle_tool_call(coordinator, workers, coordinator_step["tool_calls"])
-            # while coordinator_step["type"] == "tools":
-            #     coordinator_step = _handle_tool_call(coordinator, coordinator_step["tool_calls"])
-            # assistant_text = coordinator_step["content"] or ""
-            # print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
 
 
 def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerAgent], tool_calls):
@@ -66,8 +62,6 @@ def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerA
         for agent in workers:
             agent._format_prompt("user", f"[START TOOL RESULT] tool={tool_name} args={json.dumps(tool_call_args)} result={json.dumps(tool_call_result)} [END TOOL RESULT]",)
         coordinator_agent._format_prompt("tool", json.dumps(tool_call_result), tool_call_id=tool_call.id)
-    # coordinator_agent_result = coordinator_agent.next_assistant_message()
-    # return coordinator_agent_result
 
 
 def _majority_vote(tool_proposals):

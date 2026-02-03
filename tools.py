@@ -117,6 +117,7 @@ def create_directory_tool(path: str = ".") -> Dict[str, Any]:
     except Exception as e:
         return {"error": str(e)}
 
+
 SKIP_TOOL_NAME = "skip"
 def skip_tool(reason: str = "no_tool_needed") -> Dict[str, Any]:
     """

@@ -17,7 +17,10 @@ load_dotenv()
 
 
 class AgentInterface(ABC):
-    id: str
+    @property
+    @abstractmethod
+    def id(self) -> str: ...
+    
     @abstractmethod
     def next_assistant_message(self) -> Dict[str, Any]: ...
 
@@ -35,7 +38,7 @@ class CoordinatorAgent(AgentInterface):
         api_key: str | None = None,
         system_prompt: str = COORDINATOR_PROMPT,
     ):
-        self.id = id
+        self._id = id
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
@@ -82,6 +85,8 @@ class CoordinatorAgent(AgentInterface):
         response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
 
+    def id(self) -> str: return self._id
+
     def next_assistant_message(self, tool_choice: str = "auto"):
         assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
         tool_calls = assistant_message.tool_calls or []
@@ -123,7 +128,7 @@ class WorkerAgent(AgentInterface):
         api_key: str | None = None,
         system_prompt: str = WORKER_PROMPT,
     ):
-        self.id = id
+        self._id = id
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
@@ -155,6 +160,8 @@ class WorkerAgent(AgentInterface):
             "role": role,
             "content": "" if input is None else input.strip()
         })
+
+    def id(self) -> str: return self._id
 
     def next_assistant_message(self) -> Dict[str, Any]:
         action = self._execute_llm_call(self.prompt)
