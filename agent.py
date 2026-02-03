@@ -20,7 +20,11 @@ class AgentInterface(ABC):
     @property
     @abstractmethod
     def id(self) -> str: ...
-    
+
+    @property
+    @abstractmethod
+    def strength(self) -> str: ...
+
     @abstractmethod
     def next_assistant_message(self) -> Dict[str, Any]: ...
 
@@ -34,11 +38,13 @@ class CoordinatorAgent(AgentInterface):
     def __init__(
         self,
         id: str = "Coordinator agent",
+        strength: float = 0.5,
         model: str = "gpt-5",
         api_key: str | None = None,
         system_prompt: str = COORDINATOR_PROMPT,
     ):
         self._id = id
+        self._strength = strength
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
@@ -84,17 +90,6 @@ class CoordinatorAgent(AgentInterface):
             params["parallel_tool_calls"] = False
         response = self.openai_client.chat.completions.create(**params)
         return response.choices[0].message
-
-    def id(self) -> str: return self._id
-
-    def next_assistant_message(self, tool_choice: str = "auto"):
-        assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
-        tool_calls = assistant_message.tool_calls or []
-        if not tool_calls:
-            self._format_prompt("assistant", assistant_message.content)
-            return {"type": "final", "content": assistant_message.content}
-        self._format_prompt("assistant", assistant_message.content, tool_calls)
-        return {"type": "tools", "tool_calls": tool_calls}
     
     def _format_prompt(self, role, content, tool_call = None, tool_call_id = None):
         message = {
@@ -104,6 +99,19 @@ class CoordinatorAgent(AgentInterface):
         if tool_call is not None: message["tool_calls"] = tool_call
         if tool_call_id is not None: message["tool_call_id"] = tool_call_id
         self.prompt.append(message)
+
+    def id(self) -> str: return self._id
+
+    def strength(self) -> float: return self._strength
+
+    def next_assistant_message(self, tool_choice: str = "auto"):
+        assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
+        tool_calls = assistant_message.tool_calls or []
+        if not tool_calls:
+            self._format_prompt("assistant", assistant_message.content)
+            return {"type": "final", "content": assistant_message.content}
+        self._format_prompt("assistant", assistant_message.content, tool_calls)
+        return {"type": "tools", "tool_calls": tool_calls}
 
 
 
@@ -124,11 +132,13 @@ class WorkerAgent(AgentInterface):
     def __init__(
         self,
         id: str = "Worker agent",
+        strength: float = 0.5,
         model: str = "gpt-5",
         api_key: str | None = None,
         system_prompt: str = WORKER_PROMPT,
     ):
         self._id = id
+        self._strength = strength
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
@@ -162,6 +172,8 @@ class WorkerAgent(AgentInterface):
         })
 
     def id(self) -> str: return self._id
+
+    def strength(self) -> float: return self._strength
 
     def next_assistant_message(self) -> Dict[str, Any]:
         action = self._execute_llm_call(self.prompt)
