@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
-from tools import TOOL_REGISTRY
-from prompts import COORDINATOR_PROMPT, WORKER_PROMPT
+from formallymad.tools import TOOL_REGISTRY
+from formallymad.prompts import COORDINATOR_PROMPT, WORKER_PROMPT
 
 load_dotenv()
 

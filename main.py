@@ -5,8 +5,8 @@ from pyfiglet import Figlet
 
 from qbaf import QBAFramework
 
-from agent import CoordinatorAgent, WorkerAgent
-from tools import TOOL_REGISTRY, SKIP_TOOL_NAME
+from formallymad.agent import CoordinatorAgent, WorkerAgent
+from formallymad.tools import TOOL_REGISTRY, SKIP_TOOL_NAME
 
 
 
@@ -42,6 +42,7 @@ def main() -> None:
                     motivation = step["motivation"]
                     tool_proposals.append((agent, tool_name, motivation))
                     print(f"{GRAY}{agent.id()} proposed tool: {tool_name}{RESET_COLOR}")
+                    print(f"{GRAY}{agent.id()} Motivation: {motivation}{RESET_COLOR}\n\n")
 
             tool_name =_QBAF(workers, tool_proposals, VISUALIZE=True)
             # tool_name = _majority_vote(tool_proposals)

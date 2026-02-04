@@ -1,0 +1,1 @@
+"""FormallyMAD package."""
