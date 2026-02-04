@@ -20,8 +20,8 @@ GRAY = "\u001b[38;5;245m"
 def main() -> None:
     print(Figlet(font="big").renderText("Formally MAD"))
 
-    workers = [WorkerAgent(id="A1", strength=0.1),
-               WorkerAgent(id="A2", strength=0.9), 
+    workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
+               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive."), 
                WorkerAgent(id="A3", strength=0.2)]
     coordinator = CoordinatorAgent()
 
@@ -104,25 +104,17 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
         if agent_tool is None: continue
         if agent_tool not in first_agent_for_tool:
             supps.append((agent.id(), agent_tool))
-            for prior in reversed(agents[:index]):
-                prior_tool = tool_by_agent_id.get(prior.id())
-                if prior_tool is None: continue
-                if prior_tool != agent_tool:
-                    atts.append((agent.id(), prior.id()))
-                    break
-            first_agent_for_tool.add(agent_tool)
-        found_same = False
-        seen_alternatives: set[str] = set()
+            first_agent_for_tool.add(agent_tool)        
+        found_attack = found_support = False
         for prior in reversed(agents[:index]):
             prior_tool = tool_by_agent_id.get(prior.id())
             if prior_tool is None: continue
-            if prior_tool == agent_tool:
-                if not found_same:
-                    supps.append((agent.id(), prior.id()))
-                    found_same = True
-            elif prior_tool not in seen_alternatives:
+            if prior_tool == agent_tool and not found_support:
+                supps.append((agent.id(), prior.id()))
+                found_support = True
+            elif prior_tool != agent_tool and not found_attack:
                 atts.append((agent.id(), prior.id()))
-                seen_alternatives.add(prior_tool)
+                found_attack = Trueqqq
     qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
     visualize(qbaf, with_fs=True, round_to=3)
     plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")

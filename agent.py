@@ -136,16 +136,29 @@ class WorkerAgent(AgentInterface):
         model: str = "gpt-5",
         api_key: str | None = None,
         system_prompt: str = WORKER_PROMPT,
+        extra_prompt: str | None = None,
     ):
         self._id = id
         self._strength = strength
         if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
         self.model = model
         self.openai_client = OpenAI(api_key=api_key)
-        self.SYSTEM_PROMPT = system_prompt
+        self.SYSTEM_PROMPT = self._with_additional_information(system_prompt, extra_prompt)
         self.prompt = self._reset_prompt()
         self.tools = self._build_tools()
 
+    def _with_additional_information(self, system_prompt: str, extra_prompt: str | None) -> str:
+        if not extra_prompt: return system_prompt
+        marker = "ADDITIONAL INFORMATION:\n"
+        if marker in system_prompt:
+            return system_prompt.replace(marker, f"{marker}\n{extra_prompt.strip()}", 1)
+        return f"{system_prompt.rstrip()}\n\n{marker}\n{extra_prompt.strip()}"
+
+    def _format_prompt(self, role, input):
+        self.prompt.append({
+            "role": role,
+            "content": "" if input is None else input.strip()
+        })
     def _reset_prompt(self) -> List[Dict[str, str]]:
         return [{"role": "system", "content": self.SYSTEM_PROMPT}]
 
@@ -164,12 +177,6 @@ class WorkerAgent(AgentInterface):
             tool_description = (tool.__doc__ or "").strip()
             tools.append(f"- {tool_name}: {tool_description}" if tool_description else f"- {tool_name}")
         return "Available tools:\n" + "\n".join(tools)
-
-    def _format_prompt(self, role, input):
-        self.prompt.append({
-            "role": role,
-            "content": "" if input is None else input.strip()
-        })
 
     def id(self) -> str: return self._id
 
