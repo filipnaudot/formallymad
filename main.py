@@ -21,7 +21,7 @@ def main() -> None:
     print(Figlet(font="big").renderText("Formally MAD"))
 
     workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
-               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive."), 
+               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive. At most one ot two."), 
                WorkerAgent(id="A3", strength=0.2)]
     coordinator = CoordinatorAgent()
 
@@ -43,10 +43,9 @@ def main() -> None:
                     motivation = step["motivation"]
                     tool_proposals.append((agent, tool_name, motivation))
                     print(f"{GRAY}{agent.id()} proposed tool: {tool_name}{RESET_COLOR}")
-            
-            # TODO: This should be done using a QBAF
-            _QBAF(workers, tool_proposals)
-            tool_name = _majority_vote(tool_proposals)
+
+            tool_name =_QBAF(workers, tool_proposals, VISUALIZE=True)
+            # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
                 assistant_text = coordinator.next_assistant_message(tool_choice="none")["content"] or ""
@@ -82,7 +81,7 @@ def _majority_vote(tool_proposals):
     return winner_name
 
 
-def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]]):
+def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False):
     import matplotlib.pyplot as plt
     print(f"{GRAY}Building QBAF{RESET_COLOR}")
     
@@ -116,9 +115,14 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
                 atts.append((agent.id(), prior.id()))
                 found_attack = True
     qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
-    visualize(qbaf, with_fs=True, round_to=3)
-    plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
-    plt.close()
+    if VISUALIZE:
+        visualize(qbaf, with_fs=True, round_to=3)
+        plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
+        plt.close()
+    tool_final_strengths = {tool: round(qbaf.final_strengths[tool], 2) for tool in tool_args if tool in qbaf.final_strengths}
+    max_tool, max_strength = max(tool_final_strengths.items(), key=lambda tool_and_strength: tool_and_strength[1])
+    return max_tool
+
 
 
 
