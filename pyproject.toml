@@ -9,6 +9,13 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyfiglet",
     "pydantic>=2.0.0",
+    "qbaf-py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git",
+]
+
+[project.optional-dependencies]
+visualize = [
+    "qbaf-py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git#egg=qbaf-py[Visualizer]",
+    "matplotlib",
 ]
 
 [build-system]

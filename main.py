@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pyfiglet import Figlet
 
 from qbaf import QBAFramework
-from qbaf_visualizer.Visualizer import visualize
 
 from agent import CoordinatorAgent, WorkerAgent
 from tools import TOOL_REGISTRY, SKIP_TOOL_NAME
@@ -82,18 +81,14 @@ def _majority_vote(tool_proposals):
 
 
 def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False):
-    import matplotlib.pyplot as plt
     print(f"{GRAY}Building QBAF{RESET_COLOR}")
-    
     agent_args = [agent.id() for agent in agents]
     tool_args = [tool_name for _, tool_name, _ in tool_proposals]
     args = list(dict.fromkeys(agent_args + tool_args))
     print(f"ARGS: {args}")
-    
     strengths_by_arg = {agent.id(): agent.strength() for agent in agents}
     strengths_by_arg.update({tool_name: 0.5 for _, tool_name, _ in tool_proposals})
     initial_strengths = [strengths_by_arg[arg] for arg in args]
-
     tool_by_agent_id = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
     atts = []
     supps = []
@@ -116,6 +111,9 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
                 found_attack = True
     qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
     if VISUALIZE:
+        # Optional visualization deps live in the `visualize`` extra.
+        from qbaf_visualizer.Visualizer import visualize
+        import matplotlib.pyplot as plt
         visualize(qbaf, with_fs=True, round_to=3)
         plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
         plt.close()
