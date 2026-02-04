@@ -114,7 +114,7 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
                 found_support = True
             elif prior_tool != agent_tool and not found_attack:
                 atts.append((agent.id(), prior.id()))
-                found_attack = Trueqqq
+                found_attack = True
     qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
     visualize(qbaf, with_fs=True, round_to=3)
     plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
