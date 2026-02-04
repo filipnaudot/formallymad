@@ -18,3 +18,9 @@ source .venv/bin/activate
 ```bash
 pip install -e .
 ```
+
+Or for the visual dependencies:
+
+```bash
+pip install -e .[visualize]
+```
