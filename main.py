@@ -90,8 +90,7 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
     strengths_by_arg.update({tool_name: 0.5 for _, tool_name, _ in tool_proposals})
     initial_strengths = [strengths_by_arg[arg] for arg in args]
     tool_by_agent_id = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
-    atts = []
-    supps = []
+    atts = []; supps = []
     first_agent_for_tool: set[str] = set()
     for index, agent in enumerate(agents):
         agent_tool = tool_by_agent_id.get(agent.id())
