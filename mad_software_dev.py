@@ -99,16 +99,16 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
         if agent_tool not in first_agent_for_tool:
             supps.append((agent.id(), agent_tool))
             first_agent_for_tool.add(agent_tool)        
-        found_attack = found_support = False
+        found_support = False; found_attacks = []
         for prior in reversed(agents[:index]):
             prior_tool = tool_by_agent_id.get(prior.id())
             if prior_tool is None: continue
             if prior_tool == agent_tool and not found_support:
                 supps.append((agent.id(), prior.id()))
                 found_support = True
-            elif prior_tool != agent_tool and not found_attack:
+            elif (prior_tool != agent_tool) and (prior_tool not in found_attacks):
                 atts.append((agent.id(), prior.id()))
-                found_attack = True
+                found_attacks.append(prior_tool)
     qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
     if VISUALIZE:
         # Optional visualization deps live in the `visualize`` extra.
