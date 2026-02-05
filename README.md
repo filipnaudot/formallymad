@@ -7,6 +7,9 @@
 
 
 # Formally MAD - Agent Coordination Framework
+![Demo](./docs/demo.gif)
+
+
 Start by cloning the **GitHub** repository, then create and activate a virtual environment before installing with `pip`:
 
 ```bash
