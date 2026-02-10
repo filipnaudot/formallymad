@@ -17,6 +17,7 @@ RESET_COLOR = "\u001b[0m"
 GRAY = "\u001b[38;5;245m"
 
 def main() -> None:
+    """Entry point. Runs the multi-agent REPL loop."""
     print(Figlet(font="big").renderText("Formally MAD"))
 
     workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
@@ -58,7 +59,8 @@ def main() -> None:
                 _handle_tool_call(coordinator, workers, coordinator_step["tool_calls"])
 
 
-def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerAgent], tool_calls):
+def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerAgent], tool_calls: list) -> None:
+    """Execute tool calls and feed results back to all agents."""
     for tool_call in tool_calls:
         tool_name = tool_call.function.name # type: ignore
         tool_call_args = json.loads(tool_call.function.arguments or "{}") # type: ignore
@@ -69,7 +71,8 @@ def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerA
         coordinator_agent._format_prompt("tool", json.dumps(tool_call_result), tool_call_id=tool_call.id)
 
 
-def _majority_vote(tool_proposals):
+def _majority_vote(tool_proposals: list[tuple[WorkerAgent, str, str]]) -> str:
+    """Pick the tool name that got the most votes."""
     counts = {}
     ordered = []
     for agent, tool_name, motivation in tool_proposals:
@@ -81,27 +84,30 @@ def _majority_vote(tool_proposals):
     return winner_name
 
 
-def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False):
+def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False) -> str:
+    """Resolve tool proposals through a QBAF and return the winning tool."""
     print(f"{GRAY}Building QBAF{RESET_COLOR}")
-    agent_args = [agent.id() for agent in agents]
-    tool_args = [tool_name for _, tool_name, _ in tool_proposals]
-    args = list(dict.fromkeys(agent_args + tool_args))
-    print(f"ARGS: {args}")
-    strengths_by_arg = {agent.id(): agent.strength() for agent in agents}
-    strengths_by_arg.update({tool_name: 0.5 for _, tool_name, _ in tool_proposals})
-    initial_strengths = [strengths_by_arg[arg] for arg in args]
-    tool_by_agent_id = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
+    args, initial_strengths, agent_tool_mapping, tool_args = _build_arguments(agents, tool_proposals)
+    atts, supps = _build_relations(agents, agent_tool_mapping)
+    qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
+    if VISUALIZE: _visualize(qbaf)
+    tool_final_strengths = {tool: round(qbaf.final_strengths[tool], 2) for tool in tool_args if tool in qbaf.final_strengths}
+    max_tool, max_strength = max(tool_final_strengths.items(), key=lambda tool_and_strength: tool_and_strength[1])
+    return max_tool
+
+def _build_relations(agents: list[WorkerAgent], agent_tool_mapping: dict[str, str]) -> tuple[list[...], list[...]]:
+    """Derive attack and support relations from agent-tool assignments."""
     atts = []; supps = []
     first_agent_for_tool: set[str] = set()
     for index, agent in enumerate(agents):
-        agent_tool = tool_by_agent_id.get(agent.id())
+        agent_tool = agent_tool_mapping.get(agent.id())
         if agent_tool is None: continue
         if agent_tool not in first_agent_for_tool:
             supps.append((agent.id(), agent_tool))
             first_agent_for_tool.add(agent_tool)        
         found_support = False; found_attacks = []
         for prior in reversed(agents[:index]):
-            prior_tool = tool_by_agent_id.get(prior.id())
+            prior_tool = agent_tool_mapping.get(prior.id())
             if prior_tool is None: continue
             if prior_tool == agent_tool and not found_support:
                 supps.append((agent.id(), prior.id()))
@@ -109,26 +115,29 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
             elif (prior_tool != agent_tool) and (prior_tool not in found_attacks):
                 atts.append((agent.id(), prior.id()))
                 found_attacks.append(prior_tool)
-    qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
-    if VISUALIZE:
-        # Optional visualization deps live in the `visualize`` extra.
-        from qbaf_visualizer.Visualizer import visualize
-        import matplotlib.pyplot as plt
-        visualize(qbaf, with_fs=True, round_to=3)
-        plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
-        plt.close()
-    tool_final_strengths = {tool: round(qbaf.final_strengths[tool], 2) for tool in tool_args if tool in qbaf.final_strengths}
-    max_tool, max_strength = max(tool_final_strengths.items(), key=lambda tool_and_strength: tool_and_strength[1])
-    return max_tool
+    return atts, supps
+
+def _build_arguments(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]]) -> tuple[list[str], list[float], dict[str, str], list[str]]:
+    """Collect QBAF arguments and initial strengths from agents and proposals."""
+    agent_args = [agent.id() for agent in agents]
+    tool_args = [tool_name for _, tool_name, _ in tool_proposals]
+    args = list(dict.fromkeys(agent_args + tool_args))
+    print(f"ARGS: {args}")
+    strengths_by_arg = {agent.id(): agent.strength() for agent in agents}
+    strengths_by_arg.update({tool_name: 0.5 for _, tool_name, _ in tool_proposals})
+    initial_strengths = [strengths_by_arg[arg] for arg in args]
+    agent_tool_mapping = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
+    return args, initial_strengths, agent_tool_mapping, tool_args
 
 
-
-
-
-
-
-
-
+def _visualize(qbaf: QBAFramework) -> None:
+    """Render the QBAF graph and save it to qbaf.png."""
+    # NOTE: The optional visualization deps live in the `visualize` extra.
+    from qbaf_visualizer.Visualizer import visualize
+    import matplotlib.pyplot as plt
+    visualize(qbaf, with_fs=True, round_to=3)
+    plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 
