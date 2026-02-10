@@ -1,9 +1,11 @@
 import inspect
 import json
+from typing import cast
 from concurrent.futures import ThreadPoolExecutor
 from pyfiglet import Figlet
 
 from qbaf import QBAFramework
+from qbaf_ctrbs.shapley import determine_shapley_ctrb
 
 from formallymad.agent import CoordinatorAgent, WorkerAgent
 from formallymad.tools import TOOL_REGISTRY, SKIP_TOOL_NAME
@@ -16,8 +18,8 @@ ASSISTANT_COLOR = "\u001b[93m"
 RESET_COLOR = "\u001b[0m"
 GRAY = "\u001b[38;5;245m"
 
+
 def main() -> None:
-    """Entry point. Runs the multi-agent REPL loop."""
     print(Figlet(font="big").renderText("Formally MAD"))
 
     workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
@@ -45,7 +47,7 @@ def main() -> None:
                     print(f"{GRAY}{agent.id()} proposed tool: {tool_name}{RESET_COLOR}")
                     print(f"{GRAY}{agent.id()} Motivation: {motivation}{RESET_COLOR}\n\n")
 
-            tool_name =_QBAF(workers, tool_proposals, VISUALIZE=True)
+            tool_name, agent_contributions =_QBAF_resolver(workers, tool_proposals, VISUALIZE=True)
             # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
@@ -71,7 +73,7 @@ def _handle_tool_call(coordinator_agent: CoordinatorAgent, workers: list[WorkerA
         coordinator_agent._format_prompt("tool", json.dumps(tool_call_result), tool_call_id=tool_call.id)
 
 
-def _majority_vote(tool_proposals: list[tuple[WorkerAgent, str, str]]) -> str:
+def _majority_vote_resolver(tool_proposals: list[tuple[WorkerAgent, str, str]]) -> str:
     """Pick the tool name that got the most votes."""
     counts = {}
     ordered = []
@@ -84,7 +86,7 @@ def _majority_vote(tool_proposals: list[tuple[WorkerAgent, str, str]]) -> str:
     return winner_name
 
 
-def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False) -> str:
+def _QBAF_resolver(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False) -> tuple[str, list[tuple[str, float]]]:
     """Resolve tool proposals through a QBAF and return the winning tool."""
     print(f"{GRAY}Building QBAF{RESET_COLOR}")
     args, initial_strengths, agent_tool_mapping, tool_args = _build_arguments(agents, tool_proposals)
@@ -93,9 +95,11 @@ def _QBAF(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str
     if VISUALIZE: _visualize(qbaf)
     tool_final_strengths = {tool: round(qbaf.final_strengths[tool], 2) for tool in tool_args if tool in qbaf.final_strengths}
     max_tool, max_strength = max(tool_final_strengths.items(), key=lambda tool_and_strength: tool_and_strength[1])
-    return max_tool
+    agent_contributions = [(agent.id(), cast(float, determine_shapley_ctrb(max_tool, {agent.id()}, qbaf))) for agent in agents]
+    return max_tool, agent_contributions
 
-def _build_relations(agents: list[WorkerAgent], agent_tool_mapping: dict[str, str]) -> tuple[list[...], list[...]]:
+
+def _build_relations(agents: list[WorkerAgent], agent_tool_mapping: dict[str, str]) -> tuple[list[str], list[str]]:
     """Derive attack and support relations from agent-tool assignments."""
     atts = []; supps = []
     first_agent_for_tool: set[str] = set()
