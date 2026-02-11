@@ -1,16 +1,10 @@
-import inspect
 import json
-from typing import cast
 from concurrent.futures import ThreadPoolExecutor
 from pyfiglet import Figlet
 
-from qbaf import QBAFramework
-from qbaf_ctrbs.shapley import determine_shapley_ctrb
-
 from formallymad.agent import CoordinatorAgent, WorkerAgent
+from formallymad.qbaf import QBAFResolver
 from formallymad.tools import TOOL_REGISTRY, SKIP_TOOL_NAME
-
-
 
 
 USER_COLOR = "\u001b[94m"
@@ -23,9 +17,10 @@ def main() -> None:
     print(Figlet(font="big").renderText("Formally MAD"))
 
     workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
-               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive. At most one ot two."), 
+               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive. At most one ot two."),
                WorkerAgent(id="A3", strength=0.2)]
     coordinator = CoordinatorAgent()
+    qbaf = QBAFResolver(workers)
 
     while True:
         try:
@@ -34,7 +29,6 @@ def main() -> None:
             break
 
         for agent in workers: agent._format_prompt("user", user_input)
-
         while True:
             tool_proposals = []
             with ThreadPoolExecutor(max_workers=len(workers)) as pool:
@@ -47,14 +41,14 @@ def main() -> None:
                     print(f"{GRAY}{agent.id()} proposed tool: {tool_name}{RESET_COLOR}")
                     print(f"{GRAY}{agent.id()} Motivation: {motivation}{RESET_COLOR}\n\n")
 
-            tool_name, agent_contributions =_QBAF_resolver(workers, tool_proposals, VISUALIZE=True)
+            tool_name, _ = qbaf.resolve(tool_proposals, visualize=True)
             # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
                 assistant_text = coordinator.next_assistant_message(tool_choice="none")["content"] or ""
                 print(f"\n{ASSISTANT_COLOR}{assistant_text}{RESET_COLOR}")
                 break
-            
+
             coordinator._format_prompt("user", f"[START USER INPUT] {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents have chosen tool: {tool_name} . Call tool {tool_name} with parameters of your choice.[END INFORMATION]")
             coordinator_step = coordinator.next_assistant_message(tool_choice="required")
             if coordinator_step["type"] == "tools":
@@ -84,65 +78,6 @@ def _majority_vote_resolver(tool_proposals: list[tuple[WorkerAgent, str, str]]) 
     winner_name = winner_key
     print(f"{GRAY}Majority vote winner: {winner_name}{RESET_COLOR}")
     return winner_name
-
-
-def _QBAF_resolver(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE = False) -> tuple[str, list[tuple[str, float]]]:
-    """Resolve tool proposals through a QBAF and return the winning tool."""
-    print(f"{GRAY}Building QBAF{RESET_COLOR}")
-    args, initial_strengths, agent_tool_mapping, tool_args = _build_arguments(agents, tool_proposals)
-    atts, supps = _build_relations(agents, agent_tool_mapping)
-    qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics="QuadraticEnergy_model")
-    if VISUALIZE: _visualize(qbaf)
-    tool_final_strengths = {tool: round(qbaf.final_strengths[tool], 2) for tool in tool_args if tool in qbaf.final_strengths}
-    max_tool, max_strength = max(tool_final_strengths.items(), key=lambda tool_and_strength: tool_and_strength[1])
-    agent_contributions = [(agent.id(), cast(float, determine_shapley_ctrb(max_tool, {agent.id()}, qbaf))) for agent in agents]
-    return max_tool, agent_contributions
-
-
-def _build_relations(agents: list[WorkerAgent], agent_tool_mapping: dict[str, str]) -> tuple[list[str], list[str]]:
-    """Derive attack and support relations from agent-tool assignments."""
-    atts = []; supps = []
-    first_agent_for_tool: set[str] = set()
-    for index, agent in enumerate(agents):
-        agent_tool = agent_tool_mapping.get(agent.id())
-        if agent_tool is None: continue
-        if agent_tool not in first_agent_for_tool:
-            supps.append((agent.id(), agent_tool))
-            first_agent_for_tool.add(agent_tool)        
-        found_support = False; found_attacks = []
-        for prior in reversed(agents[:index]):
-            prior_tool = agent_tool_mapping.get(prior.id())
-            if prior_tool is None: continue
-            if prior_tool == agent_tool and not found_support:
-                supps.append((agent.id(), prior.id()))
-                found_support = True
-            elif (prior_tool != agent_tool) and (prior_tool not in found_attacks):
-                atts.append((agent.id(), prior.id()))
-                found_attacks.append(prior_tool)
-    return atts, supps
-
-def _build_arguments(agents: list[WorkerAgent], tool_proposals: list[tuple[WorkerAgent, str, str]]) -> tuple[list[str], list[float], dict[str, str], list[str]]:
-    """Collect QBAF arguments and initial strengths from agents and proposals."""
-    agent_args = [agent.id() for agent in agents]
-    tool_args = [tool_name for _, tool_name, _ in tool_proposals]
-    args = list(dict.fromkeys(agent_args + tool_args))
-    print(f"ARGS: {args}")
-    strengths_by_arg = {agent.id(): agent.strength() for agent in agents}
-    strengths_by_arg.update({tool_name: 0.5 for _, tool_name, _ in tool_proposals})
-    initial_strengths = [strengths_by_arg[arg] for arg in args]
-    agent_tool_mapping = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
-    return args, initial_strengths, agent_tool_mapping, tool_args
-
-
-def _visualize(qbaf: QBAFramework) -> None:
-    """Render the QBAF graph and save it to qbaf.png."""
-    # NOTE: The optional visualization deps live in the `visualize` extra.
-    from qbaf_visualizer.Visualizer import visualize
-    import matplotlib.pyplot as plt
-    visualize(qbaf, with_fs=True, round_to=3)
-    plt.savefig("qbaf.png", dpi=300, bbox_inches="tight")
-    plt.close()
-
 
 
 if __name__ == "__main__":
