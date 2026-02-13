@@ -12,8 +12,12 @@ def main() -> None:
     ui.banner()
 
     workers = [WorkerAgent(id="A1", strength=0.1, extra_prompt="Please do not use any tool to list files."),
-               WorkerAgent(id="A2", strength=0.9, extra_prompt="Read as few file as possible, this is expensive. At most one ot two."),
-               WorkerAgent(id="A3", strength=0.2)]
+               WorkerAgent(id="A2", strength=0.5, extra_prompt="Read as few file as possible, this is expensive. At most one ot two."),
+               WorkerAgent(id="A3", strength=0.2),
+               WorkerAgent(id="A4", strength=0.2),
+               WorkerAgent(id="A5", strength=0.2),
+               WorkerAgent(id="A6", strength=0.2),
+            ]
     coordinator = CoordinatorAgent()
     qbaf = QBAFResolver(workers)
 
@@ -32,9 +36,11 @@ def main() -> None:
                     for agent, future in futures:
                         step = future.result()
                         tool_proposals.append((agent, step["tool_name"], step["motivation"]))
-                tool_name, _ = qbaf.resolve(tool_proposals, visualize=True)
+                tool_name, _ = qbaf.resolve(tool_proposals)
+                
 
             ui.show_proposals((agent.id(), tool, motivation) for agent, tool, motivation in tool_proposals)
+            ui.show_agent_metrics(qbaf.last_agent_stats)
             # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
