@@ -29,7 +29,7 @@ def main() -> None:
 
         for agent in workers: agent._format_prompt("user", user_input)
         while True:
-            with ui.loading("Collecting worker proposals and resolving QBAF..."):
+            with ui.loading("Collecting worker proposals..."):
                 tool_proposals = []
                 with ThreadPoolExecutor(max_workers=len(workers)) as pool:
                     futures = [(agent, pool.submit(agent.next_assistant_message)) for agent in workers]
