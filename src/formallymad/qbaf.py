@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 import math
 import random
 from typing import cast
@@ -7,6 +8,29 @@ from qbaf import QBAFramework
 from qbaf_ctrbs.gradient import determine_gradient_ctrb
 
 from formallymad.agent import WorkerAgent
+
+
+@dataclass
+class MonteCarloStats:
+    strength_sum_by_tool_name: dict[str, float]
+    win_count_by_tool_name: dict[str, int]
+    win_margin_sum_by_tool_name: dict[str, float]
+    influence_sum_by_agent_id: dict[str, float]
+    influence_square_sum_by_agent_id: dict[str, float]
+    proposal_win_count_by_agent_id: dict[str, int]
+    proposed_tool_name_by_agent_id: dict[str, str]
+
+    @classmethod
+    def create(cls, tool_names: list[str], agent_ids: list[str],
+               tool_proposals: list[tuple[WorkerAgent, str, str]]) -> "MonteCarloStats":
+        return cls(strength_sum_by_tool_name=dict.fromkeys(tool_names, 0.0),
+                   win_count_by_tool_name=dict.fromkeys(tool_names, 0),
+                   win_margin_sum_by_tool_name=dict.fromkeys(tool_names, 0.0),
+                   influence_sum_by_agent_id=dict.fromkeys(agent_ids, 0.0),
+                   influence_square_sum_by_agent_id=dict.fromkeys(agent_ids, 0.0),
+                   proposal_win_count_by_agent_id=dict.fromkeys(agent_ids, 0),
+                   proposed_tool_name_by_agent_id={agent.id(): tool_name for agent, tool_name, _ in tool_proposals})
+
 
 
 class QBAFResolver:
@@ -23,24 +47,18 @@ class QBAFResolver:
     def resolve(self, tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE: bool = False) -> tuple[str, list[tuple[str, float]]]:
         if not tool_proposals: raise ValueError("tool_proposals must not be empty")
         tool_names, agent_ids = list(dict.fromkeys(tool for _, tool, _ in tool_proposals)), [agent.id() for agent in self._agents]
-        strength_sum_by_tool_name = {tool_name: 0.0 for tool_name in tool_names}
-        win_count_by_tool_name = {tool_name: 0 for tool_name in tool_names}
-        win_margin_sum_by_tool_name = {tool_name: 0.0 for tool_name in tool_names}
-        influence_sum_by_agent_id = {agent_id: 0.0 for agent_id in agent_ids}
-        influence_square_sum_by_agent_id = {agent_id: 0.0 for agent_id in agent_ids}
-        proposal_win_count_by_agent_id = {agent_id: 0 for agent_id in agent_ids}
-        proposed_tool_name_by_agent_id = {agent.id(): tool_name for agent, tool_name, _ in tool_proposals}
+        stats = MonteCarloStats.create(tool_names, agent_ids, tool_proposals)
         for _ in range(self._monte_carlo_permutations):
             permuted_tool_proposals = list(tool_proposals)
             self._rng.shuffle(permuted_tool_proposals)
             current_qbaf = self._build_qbaf_for_permutation(permuted_tool_proposals, visualize=VISUALIZE)
             final_strength_by_tool_name, winning_tool_name, winning_tool_strength, second_best_tool_strength = self._compute_winning_tool_snapshot(current_qbaf, tool_names)
-            self._accumulate_tool_outcomes(strength_sum_by_tool_name, win_count_by_tool_name, win_margin_sum_by_tool_name, final_strength_by_tool_name, winning_tool_name, winning_tool_strength, second_best_tool_strength)
-            self._accumulate_agent_outcomes(agent_ids, proposed_tool_name_by_agent_id, proposal_win_count_by_agent_id, influence_sum_by_agent_id, influence_square_sum_by_agent_id, winning_tool_name, current_qbaf)
+            self._accumulate_tool_outcomes(stats.strength_sum_by_tool_name, stats.win_count_by_tool_name, stats.win_margin_sum_by_tool_name, final_strength_by_tool_name, winning_tool_name, winning_tool_strength, second_best_tool_strength)
+            self._accumulate_agent_outcomes(agent_ids, stats.proposed_tool_name_by_agent_id, stats.proposal_win_count_by_agent_id, stats.influence_sum_by_agent_id, stats.influence_square_sum_by_agent_id, winning_tool_name, current_qbaf)
         permutation_count_as_float = float(self._monte_carlo_permutations)
-        self.last_tool_stats = self._build_tool_stats(tool_names, strength_sum_by_tool_name, win_count_by_tool_name, win_margin_sum_by_tool_name, permutation_count_as_float)
+        self.last_tool_stats = self._build_tool_stats(tool_names, stats.strength_sum_by_tool_name, stats.win_count_by_tool_name, stats.win_margin_sum_by_tool_name, permutation_count_as_float)
         winner_tool_name = max(tool_names, key=lambda tool_name: (self.last_tool_stats[tool_name]["mean_strength_over_permutations"], self.last_tool_stats[tool_name]["top_rank_win_rate_over_permutations"]))
-        self.last_agent_stats = self._build_agent_stats(agent_ids, influence_sum_by_agent_id, influence_square_sum_by_agent_id, proposal_win_count_by_agent_id, permutation_count_as_float)
+        self.last_agent_stats = self._build_agent_stats(agent_ids, stats.influence_sum_by_agent_id, stats.influence_square_sum_by_agent_id, stats.proposal_win_count_by_agent_id, permutation_count_as_float)
         self.last_agent_influence = [(agent_id, stats["mean_influence"]) for agent_id, stats in self.last_agent_stats]
         return winner_tool_name, self.last_agent_influence
 
@@ -72,6 +90,7 @@ class QBAFResolver:
             strength_sum_by_tool_name[tool_name] += tool_strength
         win_count_by_tool_name[winning_tool_name] += 1
         win_margin_sum_by_tool_name[winning_tool_name] += winning_tool_strength - second_best_tool_strength
+
 
     def _accumulate_agent_outcomes(self, agent_ids: list[str], 
                                    proposed_tool_name_by_agent_id: dict[str, str], 

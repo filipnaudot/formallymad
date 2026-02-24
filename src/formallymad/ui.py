@@ -49,7 +49,7 @@ class FormallyMADUI:
 
 
     def show_selected_tool(self, tool_name: str) -> None:
-        self.console.print(Panel.fit(f"[bold green]Selected tool:[/] [magenta]{tool_name}[/]"))
+        self.console.print(Panel.fit(f"[white]Selected tool:[/] [magenta]{tool_name}[/]"))
 
 
     def show_tool_result(self, tool_name: str, tool_args: dict, result: dict) -> None:
