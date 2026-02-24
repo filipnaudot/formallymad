@@ -34,7 +34,10 @@ class MonteCarloStats:
 
 
 class QBAFResolver:
-    def __init__(self, agents: list[WorkerAgent], *, semantics: str = "QuadraticEnergy_model", monte_carlo_permutations: int = 64, seed: int | None = None):
+    def __init__(self, agents: list[WorkerAgent], *, 
+                 semantics: str = "QuadraticEnergy_model",
+                 monte_carlo_permutations: int = 64, 
+                 seed: int | None = None):
         self._agents = agents
         self._semantics = semantics
         self._monte_carlo_permutations = max(1, monte_carlo_permutations)
