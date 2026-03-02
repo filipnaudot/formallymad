@@ -34,12 +34,16 @@ class MonteCarloStats:
 
 
 class QBAFResolver:
-    def __init__(self, agents: list[WorkerAgent], *, 
+    def __init__(self,
+                 agents: list[WorkerAgent], 
+                 *, 
                  semantics: str = "QuadraticEnergy_model",
+                 semantics_aware: bool = False,
                  monte_carlo_permutations: int = 64, 
                  seed: int | None = None):
         self._agents = agents
         self._semantics = semantics
+        self._semantics_aware = semantics_aware
         self._monte_carlo_permutations = max(1, monte_carlo_permutations)
         self._rng = random.Random(seed)
         self.last_tool_stats: dict[str, dict[str, float]] = {}
@@ -47,7 +51,11 @@ class QBAFResolver:
         self.last_agent_stats: list[tuple[str, dict[str, float]]] = []
 
 
-    def resolve(self, tool_proposals: list[tuple[WorkerAgent, str, str]], *, VISUALIZE: bool = False) -> tuple[str, list[tuple[str, float]]]:
+    def resolve(self, 
+                tool_proposals: list[tuple[WorkerAgent, str, str]], 
+                *, 
+                VISUALIZE: bool = False
+                ) -> tuple[str, list[tuple[str, float]]]:
         if not tool_proposals: raise ValueError("tool_proposals must not be empty")
         tool_names, agent_ids = list(dict.fromkeys(tool for _, tool, _ in tool_proposals)), [agent.id() for agent in self._agents]
         stats = MonteCarloStats.create(tool_names, agent_ids, tool_proposals)
@@ -66,14 +74,149 @@ class QBAFResolver:
         return winner_tool_name, self.last_agent_influence
 
 
-    def _build_qbaf_for_permutation(self, permuted_tool_proposals: list[tuple[WorkerAgent, str, str]], *, visualize: bool) -> QBAFramework:
+    def _build_qbaf_for_permutation(self, 
+                                    permuted_tool_proposals: list[tuple[WorkerAgent, str, str]], 
+                                    *, 
+                                    visualize: bool) -> QBAFramework:
         args, initial_strengths, mapping, _ = self._build_arguments(permuted_tool_proposals)
         qbaf_for_permutation = QBAFramework(args, initial_strengths, *self._build_relations(mapping, permuted_tool_proposals), semantics=self._semantics)
         if visualize: self.visualize(qbaf_for_permutation)
         return qbaf_for_permutation
+    
+
+    def _build_relations(self, 
+                         mapping: dict[str, str],
+                         permuted_tool_proposals: list[tuple[WorkerAgent, str, str]]
+                         ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        if self._semantics_aware: return self._build_semantics_informed_relations(mapping, permuted_tool_proposals)
+        return self._build_relations_legacy(mapping, permuted_tool_proposals)
 
 
-    def _compute_winning_tool_snapshot(self, current_qbaf: QBAFramework, tool_names: list[str]) -> tuple[dict[str, float], str, float, float]:
+    def _build_relations_legacy(self, 
+                                mapping: dict[str, str], 
+                                tool_proposals: list[tuple[WorkerAgent, str, str]]
+                                ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        atts, supps, first_for_tool = [], [], set()
+        agent_order = [agent for agent, _, _ in tool_proposals]
+        for i, agent in enumerate(agent_order):
+            tool = mapping.get(agent.id())
+            if not tool: continue
+            if tool not in first_for_tool:
+                supps.append((agent.id(), tool))
+                first_for_tool.add(tool)
+            supported = False
+            attacked_tools = set()
+            for prior in reversed(agent_order[:i]):
+                prior_tool = mapping.get(prior.id())
+                if not prior_tool: continue
+                if prior_tool == tool and not supported:
+                    supps.append((agent.id(), prior.id()))
+                    supported = True
+                elif prior_tool != tool and prior_tool not in attacked_tools: 
+                    atts.append((agent.id(), prior.id()))
+                    attacked_tools.add(prior_tool)
+        return atts, supps
+
+
+    def _build_semantics_informed_relations(self, 
+                                            mapping: dict[str, str], 
+                                            permuted_tool_proposals: list[tuple[WorkerAgent, str, str]]
+                                            ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        atts: list[tuple[str, str]] = []
+        supps: list[tuple[str, str]] = []
+        agent_order = [agent for agent, _, _ in permuted_tool_proposals]
+        strength_cache: dict[tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]], float] = {}
+
+        for i, agent in enumerate(agent_order):
+            source_agent_id = agent.id()
+            own_tool = mapping.get(source_agent_id)
+            if not own_tool: continue
+
+            prior_agents = agent_order[:i]
+            support_targets = [own_tool] + [prior.id() for prior in prior_agents if mapping.get(prior.id()) == own_tool]
+            best_support = self._best_support_target(source_agent_id, own_tool, support_targets, atts, supps, permuted_tool_proposals, strength_cache)
+            if best_support is not None:
+                supps.append((source_agent_id, best_support))
+
+            attack_targets = [prior.id() for prior in prior_agents if mapping.get(prior.id()) not in (None, own_tool)]
+            best_attack = self._best_attack_target(source_agent_id, attack_targets, mapping, atts, supps, permuted_tool_proposals, strength_cache)
+            if best_attack is not None:
+                atts.append((source_agent_id, best_attack))
+
+        return atts, supps
+
+
+    def _best_support_target(self,
+                             source_agent_id: str,
+                             own_tool: str,
+                             support_targets: list[str],
+                             atts: list[tuple[str, str]],
+                             supps: list[tuple[str, str]],
+                             tool_proposals: list[tuple[WorkerAgent, str, str]],
+                             strength_cache: dict[tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]], float],
+                             ) -> str | None:
+        baseline_strength = self._tool_strength_with_relations(own_tool, atts, supps, tool_proposals, strength_cache)
+        best_support_target: str | None = None
+        best_support_gain = 0.0
+        for target in support_targets:
+            candidate_edge = (source_agent_id, target)
+            if candidate_edge in supps: continue
+            candidate_supps = supps + [candidate_edge]
+            candidate_strength = self._tool_strength_with_relations(own_tool, atts, candidate_supps, tool_proposals, strength_cache)
+            support_gain = candidate_strength - baseline_strength
+            if support_gain > best_support_gain:
+                best_support_gain = support_gain
+                best_support_target = target
+        return best_support_target
+
+
+    def _best_attack_target(self,
+                            source_agent_id: str,
+                            attack_targets: list[str],
+                            mapping: dict[str, str],
+                            atts: list[tuple[str, str]],
+                            supps: list[tuple[str, str]],
+                            tool_proposals: list[tuple[WorkerAgent, str, str]],
+                            strength_cache: dict[tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]], float],
+                            ) -> str | None:
+        best_attack_target: str | None = None
+        best_harm = 0.0
+        for target_agent_id in attack_targets:
+            opponent_tool = mapping.get(target_agent_id)
+            if not opponent_tool: continue
+            baseline_opponent_strength = self._tool_strength_with_relations(opponent_tool, atts, supps, tool_proposals, strength_cache)
+            candidate_edge = (source_agent_id, target_agent_id)
+            if candidate_edge in atts: continue
+            candidate_atts = atts + [candidate_edge]
+            candidate_opponent_strength = self._tool_strength_with_relations(opponent_tool, candidate_atts, supps, tool_proposals, strength_cache)
+            opponent_harm = baseline_opponent_strength - candidate_opponent_strength
+            if opponent_harm > best_harm:
+                best_harm = opponent_harm
+                best_attack_target = target_agent_id
+        return best_attack_target
+
+
+    def _tool_strength_with_relations(self, 
+                                      tool_name: str, 
+                                      atts: list[tuple[str, str]],
+                                      supps: list[tuple[str, str]],
+                                      tool_proposals: list[tuple[WorkerAgent, str, str]],
+                                      strength_cache: dict[tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]], float]
+                                      ) -> float:
+        cache_key = (tool_name, tuple(sorted(atts)), tuple(sorted(supps)))
+        if cache_key in strength_cache:
+            return strength_cache[cache_key]
+        args, initial_strengths, _, _ = self._build_arguments(tool_proposals)
+        qbaf = QBAFramework(args, initial_strengths, atts, supps, semantics=self._semantics)
+        final_strength = cast(float, qbaf.final_strengths.get(tool_name, 0.0))
+        strength_cache[cache_key] = final_strength
+        return final_strength
+
+
+    def _compute_winning_tool_snapshot(self,
+                                       current_qbaf: QBAFramework, 
+                                       tool_names: list[str]
+                                       ) -> tuple[dict[str, float], str, float, float]:
         final_strength_by_tool_name = {tool_name: cast(float, current_qbaf.final_strengths.get(tool_name, 0.0)) for tool_name in tool_names}
         ranked_tool_names_by_strength = sorted(final_strength_by_tool_name.items(), key=lambda tool_and_strength: tool_and_strength[1], reverse=True)
         winning_tool_name, winning_tool_strength = ranked_tool_names_by_strength[0]
@@ -108,7 +251,8 @@ class QBAFResolver:
             proposal_win_count_by_agent_id[agent_id] += int(proposed_tool_name_by_agent_id.get(agent_id) == winning_tool_name)
 
 
-    def _build_tool_stats(self, tool_names: list[str], 
+    def _build_tool_stats(self, 
+                          tool_names: list[str], 
                           strength_sum_by_tool_name: dict[str, float], 
                           win_count_by_tool_name: dict[str, int], 
                           win_margin_sum_by_tool_name: dict[str, float], 
@@ -123,15 +267,20 @@ class QBAFResolver:
             }
 
 
-    def _build_agent_stats(self, agent_ids: list[str], influence_sum_by_agent_id: dict[str, float], influence_square_sum_by_agent_id: dict[str, float], proposal_win_count_by_agent_id: dict[str, int], permutation_count_as_float: float) -> list[tuple[str, dict[str, float]]]:
+    def _build_agent_stats(self,
+                           agent_ids: list[str], 
+                           influence_sum_by_agent_id: dict[str, float], 
+                           influence_square_sum_by_agent_id: dict[str, float], 
+                           proposal_win_count_by_agent_id: dict[str, int], 
+                           permutation_count_as_float: float
+                           ) -> list[tuple[str, dict[str, float]]]:
         return sorted([(agent_id, {"mean_influence": round(influence_sum_by_agent_id[agent_id] / permutation_count_as_float, 4),
                                    "influence_std": round(math.sqrt(max(0.0, influence_square_sum_by_agent_id[agent_id] / permutation_count_as_float - (influence_sum_by_agent_id[agent_id] / permutation_count_as_float) ** 2)), 4),
                                    "proposal_win_rate": round(proposal_win_count_by_agent_id[agent_id] / permutation_count_as_float, 4),
                                    },)
                                    for agent_id in agent_ids],
-            key=lambda agent_id_and_stats: abs(agent_id_and_stats[1]["mean_influence"]),
-            reverse=True,
-        )
+                                   key=lambda agent_id_and_stats: abs(agent_id_and_stats[1]["mean_influence"]),
+                                   reverse=True,)
 
 
     def _build_arguments(self, tool_proposals: list[tuple[WorkerAgent, str, str]]) -> tuple[list[str], list[float], dict[str, str], list[str]]:
@@ -141,22 +290,6 @@ class QBAFResolver:
         strengths = {agent.id(): agent.strength() for agent in self._agents} | {tool: 0.5 for _, tool, _ in tool_proposals}
         mapping = {agent.id(): tool for agent, tool, _ in tool_proposals}
         return args, [strengths[arg] for arg in args], mapping, tools
-
-
-    def _build_relations(self, mapping: dict[str, str], tool_proposals: list[tuple[WorkerAgent, str, str]]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
-        atts, supps, first_for_tool = [], [], set()
-        agent_order = [agent for agent, _, _ in tool_proposals]
-        for i, agent in enumerate(agent_order):
-            tool = mapping.get(agent.id())
-            if not tool: continue
-            if tool not in first_for_tool: supps.append((agent.id(), tool)); first_for_tool.add(tool)
-            supported, attacked_tools = False, set()
-            for prior in reversed(agent_order[:i]):
-                prior_tool = mapping.get(prior.id())
-                if not prior_tool: continue
-                if prior_tool == tool and not supported: supps.append((agent.id(), prior.id())); supported = True
-                elif prior_tool != tool and prior_tool not in attacked_tools: atts.append((agent.id(), prior.id())); attacked_tools.add(prior_tool)
-        return atts, supps
 
 
     @staticmethod
