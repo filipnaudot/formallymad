@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import pytest
 
 from formallymad import QBAFResolver
+import formallymad.qbaf as qbaf_module
 
 
 

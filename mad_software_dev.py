@@ -19,7 +19,7 @@ def main() -> None:
                WorkerAgent(id="A6", strength=0.2),
             ]
     coordinator = CoordinatorAgent()
-    qbaf = QBAFResolver(workers)
+    qbaf = QBAFResolver(workers, monte_carlo_permutations=1, semantics_aware=True)
 
     while True:
         try:
