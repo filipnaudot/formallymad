@@ -22,8 +22,12 @@ class AgentInterface(ABC):
     def id(self) -> str: ...
 
     @property
-    @abstractmethod
-    def strength(self) -> str: ...
+    def strength(self) -> float:
+        return self._strength
+
+    @strength.setter
+    def strength(self, value: float) -> None:
+        self._strength = value
 
     @abstractmethod
     def next_assistant_message(self) -> Dict[str, Any]: ...
@@ -100,9 +104,8 @@ class CoordinatorAgent(AgentInterface):
         if tool_call_id is not None: message["tool_call_id"] = tool_call_id
         self.prompt.append(message)
 
+    @property
     def id(self) -> str: return self._id
-
-    def strength(self) -> float: return self._strength
 
     def next_assistant_message(self, tool_choice: str = "auto"):
         assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
@@ -178,9 +181,8 @@ class WorkerAgent(AgentInterface):
             tools.append(f"- {tool_name}: {tool_description}" if tool_description else f"- {tool_name}")
         return "Available tools:\n" + "\n".join(tools)
 
+    @property
     def id(self) -> str: return self._id
-
-    def strength(self) -> float: return self._strength
 
     def next_assistant_message(self) -> Dict[str, Any]:
         action = self._execute_llm_call(self.prompt)

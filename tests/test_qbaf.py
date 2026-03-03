@@ -10,7 +10,11 @@ import formallymad.qbaf as qbaf_module
 class FakeAgent:
     agent_id: str
     agent_strength: float
+
+    @property
     def id(self) -> str: return self.agent_id
+
+    @property
     def strength(self) -> float: return self.agent_strength
 
 
