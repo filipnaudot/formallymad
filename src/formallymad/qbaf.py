@@ -29,7 +29,7 @@ class MonteCarloStats:
                    influence_sum_by_agent_id=dict.fromkeys(agent_ids, 0.0),
                    influence_square_sum_by_agent_id=dict.fromkeys(agent_ids, 0.0),
                    proposal_win_count_by_agent_id=dict.fromkeys(agent_ids, 0),
-                   proposed_tool_name_by_agent_id={agent.id(): tool_name for agent, tool_name, _ in tool_proposals})
+                   proposed_tool_name_by_agent_id={agent.id: tool_name for agent, tool_name, _ in tool_proposals})
 
 
 
@@ -57,7 +57,7 @@ class QBAFResolver:
                 VISUALIZE: bool = False
                 ) -> tuple[str, list[tuple[str, float]]]:
         if not tool_proposals: raise ValueError("tool_proposals must not be empty")
-        tool_names, agent_ids = list(dict.fromkeys(tool for _, tool, _ in tool_proposals)), [agent.id() for agent in self._agents]
+        tool_names, agent_ids = list(dict.fromkeys(tool for _, tool, _ in tool_proposals)), [agent.id for agent in self._agents]
         stats = MonteCarloStats.create(tool_names, agent_ids, tool_proposals)
         for _ in range(self._monte_carlo_permutations):
             permuted_tool_proposals = list(tool_proposals)
@@ -99,21 +99,21 @@ class QBAFResolver:
         atts, supps, first_for_tool = [], [], set()
         agent_order = [agent for agent, _, _ in tool_proposals]
         for i, agent in enumerate(agent_order):
-            tool = mapping.get(agent.id())
+            tool = mapping.get(agent.id)
             if not tool: continue
             if tool not in first_for_tool:
-                supps.append((agent.id(), tool))
+                supps.append((agent.id, tool))
                 first_for_tool.add(tool)
             supported = False
             attacked_tools = set()
             for prior in reversed(agent_order[:i]):
-                prior_tool = mapping.get(prior.id())
+                prior_tool = mapping.get(prior.id)
                 if not prior_tool: continue
                 if prior_tool == tool and not supported:
-                    supps.append((agent.id(), prior.id()))
+                    supps.append((agent.id, prior.id))
                     supported = True
                 elif prior_tool != tool and prior_tool not in attacked_tools: 
-                    atts.append((agent.id(), prior.id()))
+                    atts.append((agent.id, prior.id))
                     attacked_tools.add(prior_tool)
         return atts, supps
 
@@ -128,17 +128,17 @@ class QBAFResolver:
         strength_cache: dict[tuple[str, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]], float] = {}
 
         for i, agent in enumerate(agent_order):
-            source_agent_id = agent.id()
+            source_agent_id = agent.id
             own_tool = mapping.get(source_agent_id)
             if not own_tool: continue
 
             prior_agents = agent_order[:i]
-            support_targets = [own_tool] + [prior.id() for prior in prior_agents if mapping.get(prior.id()) == own_tool]
+            support_targets = [own_tool] + [prior.id for prior in prior_agents if mapping.get(prior.id) == own_tool]
             best_support = self._best_support_target(source_agent_id, own_tool, support_targets, atts, supps, permuted_tool_proposals, strength_cache)
             if best_support is not None:
                 supps.append((source_agent_id, best_support))
 
-            attack_targets = [prior.id() for prior in prior_agents if mapping.get(prior.id()) not in (None, own_tool)]
+            attack_targets = [prior.id for prior in prior_agents if mapping.get(prior.id) not in (None, own_tool)]
             best_attack = self._best_attack_target(source_agent_id, attack_targets, mapping, atts, supps, permuted_tool_proposals, strength_cache)
             if best_attack is not None:
                 atts.append((source_agent_id, best_attack))
@@ -284,11 +284,11 @@ class QBAFResolver:
 
 
     def _build_arguments(self, tool_proposals: list[tuple[WorkerAgent, str, str]]) -> tuple[list[str], list[float], dict[str, str], list[str]]:
-        agent_args = [agent.id() for agent in self._agents]
+        agent_args = [agent.id for agent in self._agents]
         tools = [tool for _, tool, _ in tool_proposals]
         args = list(dict.fromkeys(agent_args + tools))
-        strengths = {agent.id(): agent.strength() for agent in self._agents} | {tool: 0.5 for _, tool, _ in tool_proposals}
-        mapping = {agent.id(): tool for agent, tool, _ in tool_proposals}
+        strengths = {agent.id: agent.strength for agent in self._agents} | {tool: 0.5 for _, tool, _ in tool_proposals}
+        mapping = {agent.id: tool for agent, tool, _ in tool_proposals}
         return args, [strengths[arg] for arg in args], mapping, tools
 
 

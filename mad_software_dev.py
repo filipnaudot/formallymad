@@ -39,7 +39,7 @@ def main() -> None:
                 tool_name, _ = qbaf.resolve(tool_proposals)
                 
 
-            ui.show_proposals((agent.id(), tool, motivation) for agent, tool, motivation in tool_proposals)
+            ui.show_proposals((agent.id, tool, motivation) for agent, tool, motivation in tool_proposals)
             ui.show_agent_metrics(qbaf.last_agent_stats)
             # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
