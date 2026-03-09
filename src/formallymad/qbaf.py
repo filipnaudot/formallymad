@@ -47,7 +47,7 @@ class QBAFResolver:
         self._monte_carlo_permutations = max(1, monte_carlo_permutations)
         self._rng = random.Random(seed)
         self.last_tool_stats: dict[str, dict[str, float]] = {}
-        self.last_agent_influence: list[tuple[str, float]] = []
+        self.final_agent_influence: list[tuple[str, float]] = []
         self.last_agent_stats: list[tuple[str, dict[str, float]]] = []
 
 
@@ -70,8 +70,8 @@ class QBAFResolver:
         self.last_tool_stats = self._build_tool_stats(tool_names, stats.strength_sum_by_tool_name, stats.win_count_by_tool_name, stats.win_margin_sum_by_tool_name, permutation_count_as_float)
         winner_tool_name = max(tool_names, key=lambda tool_name: (self.last_tool_stats[tool_name]["mean_strength_over_permutations"], self.last_tool_stats[tool_name]["top_rank_win_rate_over_permutations"]))
         self.last_agent_stats = self._build_agent_stats(agent_ids, stats.influence_sum_by_agent_id, stats.influence_square_sum_by_agent_id, stats.proposal_win_count_by_agent_id, permutation_count_as_float)
-        self.last_agent_influence = [(agent_id, stats["mean_influence"]) for agent_id, stats in self.last_agent_stats]
-        return winner_tool_name, self.last_agent_influence
+        self.final_agent_influence = [(agent_id, stats["mean_influence"]) for agent_id, stats in self.last_agent_stats]
+        return winner_tool_name, self.final_agent_influence
 
 
     def _build_qbaf_for_permutation(self, 

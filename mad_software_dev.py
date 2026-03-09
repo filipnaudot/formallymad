@@ -16,8 +16,7 @@ def main() -> None:
                WorkerAgent(id="A3", strength=0.2),
                WorkerAgent(id="A4", strength=0.2),
                WorkerAgent(id="A5", strength=0.2),
-               WorkerAgent(id="A6", strength=0.2),
-            ]
+               WorkerAgent(id="A6", strength=0.2),]
     coordinator = CoordinatorAgent()
     qbaf = QBAFResolver(workers, monte_carlo_permutations=1, semantics_aware=True)
 
@@ -29,19 +28,22 @@ def main() -> None:
 
         for agent in workers: agent._format_prompt("user", user_input)
         while True:
+
+            tool_proposals = []
             with ui.loading("Collecting worker proposals..."):
-                tool_proposals = []
                 with ThreadPoolExecutor(max_workers=len(workers)) as pool:
                     futures = [(agent, pool.submit(agent.next_assistant_message)) for agent in workers]
                     for agent, future in futures:
                         step = future.result()
                         tool_proposals.append((agent, step["tool_name"], step["motivation"]))
-                tool_name, _ = qbaf.resolve(tool_proposals)
+            
+            # TODO: here we may want to set/update the agents strengths.
+            #       We'll use llmSHAP and a summarizer/recommender agent.
+            tool_name, _ = qbaf.resolve(tool_proposals)
+            # tool_name = _majority_vote(tool_proposals)
                 
-
             ui.show_proposals((agent.id, tool, motivation) for agent, tool, motivation in tool_proposals)
             ui.show_agent_metrics(qbaf.last_agent_stats)
-            # tool_name = _majority_vote(tool_proposals)
             if tool_name == SKIP_TOOL_NAME:
                 coordinator._format_prompt("user", f"[START USER INPUT] User input: {user_input} [END USER INPUT]\n [START INFORMATION] The worker agents recommend to not call a tool.[END INFORMATION]")
                 with ui.loading("Generating assistant response..."):
