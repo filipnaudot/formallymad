@@ -30,10 +30,10 @@ class FormallyMADUI:
     def show_proposals(self, proposals: Iterable[tuple[str, str, str]]) -> None:
         table = Table(title="Worker Proposals", expand=True)
         table.add_column("Agent", style="cyan", no_wrap=True)
-        table.add_column("Tool", style="magenta", no_wrap=True)
+        table.add_column("Recommendation", style="magenta")
         table.add_column("Motivation", style="white")
-        for agent_id, tool_name, motivation in proposals:
-            table.add_row(agent_id, tool_name, motivation or "-")
+        for agent_id, recommendation, motivation in proposals:
+            table.add_row(agent_id, recommendation or "-", motivation or "-")
         self.console.print(table)
 
 
@@ -48,15 +48,8 @@ class FormallyMADUI:
         self.console.print(table)
 
 
-    def show_selected_tool(self, tool_name: str) -> None:
-        self.console.print(Panel.fit(f"[white]Selected tool:[/] [magenta]{tool_name}[/]"))
-
-
-    def show_tool_result(self, tool_name: str, tool_args: dict, result: dict) -> None:
-        self.console.print(Panel.fit(f"[bold]Tool[/]: {tool_name}\n[bold]Args[/]: {tool_args}\n[bold]Result[/]: {result}",
-                                     title="Tool Call",
-                                     border_style="grey62",
-                                     ))
+    def show_winner(self, recommendation: str) -> None:
+        self.console.print(Panel.fit(f"[white]QBAF winner:[/] [magenta]{recommendation}[/]"))
 
 
     def show_assistant(self, text: str) -> None:

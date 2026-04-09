@@ -1,190 +1,92 @@
 import inspect
 import json
 import os
-
 from openai import OpenAI
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List
 
 from formallymad.tools import TOOL_REGISTRY
-from formallymad.prompts import COORDINATOR_PROMPT, WORKER_PROMPT
 
 load_dotenv()
 
 
-
-
-class AgentInterface(ABC):
-    @property
-    @abstractmethod
-    def id(self) -> str: ...
-
-    @property
-    def strength(self) -> float:
-        return self._strength
-
-    @strength.setter
-    def strength(self, value: float) -> None:
-        self._strength = value
-
-    @abstractmethod
-    def next_assistant_message(self) -> Dict[str, Any]: ...
-
-
-
-
-##################
-# CoordinatorAgent
-##################
-class CoordinatorAgent(AgentInterface):
-    def __init__(
-        self,
-        id: str = "Coordinator agent",
-        strength: float = 0.5,
-        model: str = "gpt-5",
-        api_key: str | None = None,
-        system_prompt: str = COORDINATOR_PROMPT,
-    ):
-        self._id = id
-        self._strength = strength
-        if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
-        self.model = model
-        self.openai_client = OpenAI(api_key=api_key)
-        self.tools = self._build_tools()
-        self.SYSTEM_PROMPT = system_prompt
-        self.prompt = self._reset_prompt()
-
-    def _reset_prompt(self) -> List[Dict[str, str]]:
-        return [{
-            "role": "system",
-            "content": self.SYSTEM_PROMPT
-        }]
-
-    def _build_tools(self) -> List[Dict[str, Any]]:
-        tools = []
-        for tool_name, tool in TOOL_REGISTRY.items():
-            signature = inspect.signature(tool)
-            properties = {name: {"type": "string"} for name in signature.parameters}
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool_name,
-                    "description": (tool.__doc__ or "").strip(),
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": list(signature.parameters.keys()),
-                        "additionalProperties": False
-                    }
-                }
-            })
-        return tools
-
-    def _execute_llm_call(self, prompt: List[Dict[str, str]], tool_choice: str = "auto"):
-        params: Dict[str, Any] = {
-            "model": self.model,
-            "messages": prompt, # type: ignore
-            "max_completion_tokens": 10000,
-        }
-        if self.tools is not None:
-            params["tools"] = self.tools
-            params["tool_choice"] = tool_choice
-            params["parallel_tool_calls"] = False
-        response = self.openai_client.chat.completions.create(**params)
-        return response.choices[0].message
-    
-    def _format_prompt(self, role, content, tool_call = None, tool_call_id = None):
-        message = {
-            "role": role,
-            "content": content
-        }
-        if tool_call is not None: message["tool_calls"] = tool_call
-        if tool_call_id is not None: message["tool_call_id"] = tool_call_id
-        self.prompt.append(message)
-
-    @property
-    def id(self) -> str: return self._id
-
-    def next_assistant_message(self, tool_choice: str = "auto"):
-        assistant_message = self._execute_llm_call(self.prompt, tool_choice = tool_choice)
-        tool_calls = assistant_message.tool_calls or []
-        if not tool_calls:
-            self._format_prompt("assistant", assistant_message.content)
-            return {"type": "final", "content": assistant_message.content}
-        self._format_prompt("assistant", assistant_message.content, tool_calls)
-        return {"type": "tools", "tool_calls": tool_calls}
-
-
-
-
-
-
-
-
-##################
-# WorkerAgent
-##################
-class ActionEvent(BaseModel):
-    tool_name: str
+class Recommendation(BaseModel):
+    recommendation: str
     motivation: str
 
 
-class WorkerAgent(AgentInterface):
-    def __init__(
-        self,
-        id: str = "Worker agent",
-        strength: float = 0.5,
-        model: str = "gpt-5",
-        api_key: str | None = None,
-        system_prompt: str = WORKER_PROMPT,
-        extra_prompt: str | None = None,
-    ):
+class Agent:
+    def __init__(self,
+                 id: str,
+                 system_prompt: str,
+                 extra_prompt: str | None = None,
+                 model: str = "gpt-5",
+                 api_key: str | None = None,
+                 strength: float = 0.5) -> None:
         self._id = id
-        self._strength = strength
-        if api_key is None: api_key = os.environ["OPENAI_API_KEY"]
+        self.strength = strength
         self.model = model
-        self.openai_client = OpenAI(api_key=api_key)
-        self.SYSTEM_PROMPT = self._with_additional_information(system_prompt, extra_prompt)
-        self.prompt = self._reset_prompt()
-        self.tools = self._build_tools()
+        self.client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"])
+        self.system_prompt = system_prompt + (f"\n\nADDITIONAL INSTRUCTIONS:\n{extra_prompt}" if extra_prompt else "")
+        self._tools = self._build_tools()
 
-    def _with_additional_information(self, system_prompt: str, extra_prompt: str | None) -> str:
-        if not extra_prompt: return system_prompt
-        marker = "ADDITIONAL INFORMATION:\n"
-        if marker in system_prompt:
-            return system_prompt.replace(marker, f"{marker}\n{extra_prompt.strip()}", 1)
-        return f"{system_prompt.rstrip()}\n\n{marker}\n{extra_prompt.strip()}"
 
-    def _format_prompt(self, role, input):
-        self.prompt.append({
-            "role": role,
-            "content": "" if input is None else input.strip()
-        })
-    def _reset_prompt(self) -> List[Dict[str, str]]:
-        return [{"role": "system", "content": self.SYSTEM_PROMPT}]
-
-    def _execute_llm_call(self, prompt: List[Dict[str, str]]) -> ActionEvent:
-        prompt = prompt + [{"role": "system", "content": self.tools}]
-        response = self.openai_client.responses.parse(
-            model=self.model,
-            input=prompt, # type: ignore
-            text_format=ActionEvent,
-        )
-        return response.output_parsed # type: ignore
-    
-    def _build_tools(self) -> str:
+    def _build_tools(self) -> list[dict]:
+        """
+        Build OpenAI-format tool definitions from TOOL_REGISTRY using inspect for parameter types.
+        """
+        _PY_TO_JSON = {str: "string", int: "integer", float: "number", bool: "boolean"}
         tools = []
         for tool_name, tool in TOOL_REGISTRY.items():
-            tool_description = (tool.__doc__ or "").strip()
-            tools.append(f"- {tool_name}: {tool_description}" if tool_description else f"- {tool_name}")
-        return "Available tools:\n" + "\n".join(tools)
+            sig = inspect.signature(tool)
+            properties = {name: {"type": _PY_TO_JSON.get(param.annotation, "string")} for name, param in sig.parameters.items()}
+            tools.append({"type": "function",
+                          "name": tool_name,
+                          "description": (tool.__doc__ or "").strip(),
+                          "parameters": {"type": "object",
+                                         "properties": properties,
+                                         "required": list(sig.parameters.keys()),
+                                         "additionalProperties": False}})
+        return tools
+
 
     @property
     def id(self) -> str: return self._id
 
-    def next_assistant_message(self) -> Dict[str, Any]:
-        action = self._execute_llm_call(self.prompt)
-        self._format_prompt("assistant", json.dumps(action.model_dump()))
-        return {"type": "action", **action.model_dump()}
+
+    def recommend(self, query: str) -> Recommendation:
+        """
+        Query the model, execute any requested tool calls, and return a final structured recommendation.
+        Loops until the model stops calling tools.
+
+        :param query: The user query or task to recommend an action for.
+        """
+        messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": query}]
+        while True:
+            response = self.client.responses.parse(model=self.model, input=messages, tools=self._tools, text_format=Recommendation) # type: ignore
+            if response.output_parsed is not None:
+                return response.output_parsed
+            tool_calls = [item for item in response.output if item.type == "function_call"]
+            messages += [{"type": "function_call", "call_id": c.call_id, "name": c.name, "arguments": c.arguments} for c in tool_calls]
+            for call in tool_calls:
+                result = TOOL_REGISTRY[call.name](**json.loads(call.arguments))
+                messages.append({"type": "function_call_output",
+                                 "call_id": call.call_id,
+                                 "output": json.dumps(result)})
+
+
+    def synthesize(self, query: str, recommendations: list[tuple["Agent", Recommendation]]) -> str:
+        """
+        Synthesize all worker recommendations into a single final answer (oracle role).
+
+        :param query: The original user query.
+        :param recommendations: List of (agent, recommendation) pairs from all workers.
+        """
+        recs = "\n".join(f"[{a.id}] {r.recommendation} — {r.motivation}" for a, r in recommendations)
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "system", "content": self.system_prompt},
+                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{recs}"},],
+            max_completion_tokens=2000,
+        )
+        return response.choices[0].message.content or ""
