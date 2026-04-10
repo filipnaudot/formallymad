@@ -48,8 +48,8 @@ class FormallyMADUI:
         self.console.print(table)
 
 
-    def show_winner(self, recommendation: str) -> None:
-        self.console.print(Panel.fit(f"[white]QBAF winner:[/] [magenta]{recommendation}[/]"))
+    def show_result(self, label: str, value: str, color: str = "magenta") -> None:
+        self.console.print(Panel.fit(f"[white]{label}:[/] [{color}]{value}[/]"))
 
 
     def show_assistant(self, text: str) -> None:

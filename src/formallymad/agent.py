@@ -5,6 +5,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+from formallymad.prompts import RECOMMENDER_PROMPT
 from formallymad.tools import TOOL_REGISTRY
 
 load_dotenv()
@@ -18,8 +19,8 @@ class Recommendation(BaseModel):
 class Agent:
     def __init__(self,
                  id: str,
-                 system_prompt: str,
-                 extra_prompt: str | None = None,
+                 system_prompt: str = RECOMMENDER_PROMPT,
+                 role: str | None = None,
                  model: str = "gpt-5",
                  api_key: str | None = None,
                  strength: float = 0.5) -> None:
@@ -27,7 +28,7 @@ class Agent:
         self.strength = strength
         self.model = model
         self.client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"], max_retries=10)
-        self.system_prompt = system_prompt + (f"\n\nADDITIONAL INSTRUCTIONS:\n{extra_prompt}" if extra_prompt else "")
+        self.system_prompt = (f"YOUR ROLE: {role}\n\n" if role else "") + system_prompt
         self._tools = self._build_tools()
 
 
