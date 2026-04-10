@@ -6,22 +6,30 @@
 </div>
 
 
-# Formally MAD - Agent Coordination Framework
+# Formally MAD - Multi-Agent RecSys Framework
 
 Start by cloning the **GitHub** repository, then create and activate a virtual environment before installing with `pip`:
 
 ```bash
-python -m venv .venv
-```
-```bash
-source .venv/bin/activate
-```
-```bash
+python -m venv venv
+source venv/bin/activate
 pip install -e .
 ```
 
-Or for the visual dependencies:
+Or with visualizer support:
 
 ```bash
 pip install -e .[visualize]
+```
+
+Add your OpenAI API key to a `.env` file at the project root:
+
+```
+OPENAI_API_KEY=sk-...
+```
+
+Then run:
+
+```bash
+python main.py
 ```
