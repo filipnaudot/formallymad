@@ -77,7 +77,7 @@ class QBAFResolver:
         self._monte_carlo_permutations = max(1, monte_carlo_permutations)
         self._visualize = visualize
         self._plot_counter = 0
-        self._rng = random.Random(seed)
+        self._random_shuffler = random.Random(seed)
         self.last_tool_stats: dict[str, dict[str, float]] = {}
         self.final_agent_influence: list[tuple[str, float]] = []
         self.last_agent_stats: list[tuple[str, dict[str, float]]] = []
@@ -95,7 +95,7 @@ class QBAFResolver:
         self._plot_counter = 0
         for _ in range(self._monte_carlo_permutations):
             permuted = list(tool_proposals)
-            self._rng.shuffle(permuted)
+            self._random_shuffler.shuffle(permuted)
             qbaf = self._build_qbaf_for_permutation(permuted)
             snapshot = self._compute_winning_tool_snapshot(qbaf, tool_names)
             self._accumulate_tool_outcomes(stats, snapshot)

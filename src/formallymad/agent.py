@@ -26,7 +26,7 @@ class Agent:
         self._id = id
         self.strength = strength
         self.model = model
-        self.client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"])
+        self.client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"], max_retries=10)
         self.system_prompt = system_prompt + (f"\n\nADDITIONAL INSTRUCTIONS:\n{extra_prompt}" if extra_prompt else "")
         self._tools = self._build_tools()
 
@@ -67,7 +67,7 @@ class Agent:
             if response.output_parsed is not None:
                 return response.output_parsed
             tool_calls = [item for item in response.output if item.type == "function_call"]
-            messages += [{"type": "function_call", "call_id": c.call_id, "name": c.name, "arguments": c.arguments} for c in tool_calls]
+            messages += [{"type": "function_call", "call_id": tool_call.call_id, "name": tool_call.name, "arguments": tool_call.arguments} for tool_call in tool_calls]
             for call in tool_calls:
                 result = TOOL_REGISTRY[call.name](**json.loads(call.arguments))
                 messages.append({"type": "function_call_output",
@@ -82,11 +82,11 @@ class Agent:
         :param query: The original user query.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
         """
-        recs = "\n".join(f"[{a.id}] {r.recommendation} — {r.motivation}" for a, r in recommendations)
+        formatted_recommendations = "\n\n".join(f"[AGENT: {agent.id}] RECOMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": self.system_prompt},
-                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{recs}"},],
+                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{formatted_recommendations}"},],
             max_completion_tokens=2000,
         )
         return response.choices[0].message.content or ""
