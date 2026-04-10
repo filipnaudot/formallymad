@@ -65,6 +65,8 @@ def normalize_attribution_strengths(scores: dict[str, float]) -> dict[str, float
     If all scores are equal, returns 0.5 for all agents.
     """
     values = list(scores.values())
+    # TODO: consider proportional normalization instead: score / sum(scores).
+    #       It avoids collapsing the minimum agent to 0 and does not artificially stretch the range.
     min_val, max_val = min(values), max(values)
     if max_val == min_val:
         return {k: 0.5 for k in scores}

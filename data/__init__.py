@@ -1,4 +1,4 @@
 from .base import DataClass
-from .symptom_to_diagnosis.symptom import SymptomDataset
+from .medqa.medqa import MedQAItem
 
-__all__ = ["DataClass", "SymptomDataset"]
+__all__ = ["DataClass", "MedQAItem"]

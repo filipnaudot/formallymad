@@ -78,38 +78,42 @@ class Agent:
                                  "output": json.dumps(result)})
 
 
-    def synthesize(self, query: str, recommendations: list[tuple["Agent", Recommendation]]) -> str:
+    def synthesize(self, question: str, recommendations: list[tuple["Agent", Recommendation]]) -> Recommendation:
         """
-        Synthesize all worker recommendations into a single final answer (oracle role).
+        Synthesize all worker recommendations into a structured final Recommendation (oracle role).
 
-        :param query: The original user query.
+        :param question: The original question posed to the worker agents.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
         """
         formatted_recommendations = "\n\n".join(f"[AGENT: {agent.id}] RECOMMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "system", "content": self.system_prompt},
-                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{formatted_recommendations}"}],
-            max_completion_tokens=2000,
-        )
-        return response.choices[0].message.content or ""
+        messages = [{"role": "system", "content": self.system_prompt.format(question=question)},
+                    {"role": "user", "content": formatted_recommendations}]
+        response = self.client.responses.parse(model=self.model, input=messages, text_format=Recommendation) # type: ignore
+        return response.output_parsed # type: ignore
 
 
-    def synthesize_with_attribution(self, query: str, recommendations: list[tuple["Agent", Recommendation]]) -> tuple[str, dict[str, float]]:
+    def synthesize_with_attribution(self, question: str, recommendations: list[tuple["Agent", Recommendation]], options: list[str] | None = None) -> tuple[Recommendation, dict[str, float]]:
         """
-        Run oracle synthesis and llmSHAP attribution in one pass.
-        Each agent's (recommendation + motivation) block is one unit of attribution.
-        Returns the oracle's final answer and a dict mapping agent_id -> llmSHAP score.
+        Run llmSHAP attribution then produce a structured final Recommendation (oracle role).
+        The question is embedded in the oracle system prompt so agent blocks are the sole attribution units.
+        The structured final answer is obtained via a separate synthesize() call.
+        Uses self.model for all LLM calls.
 
-        :param query: The original user query.
+        :param question: The original question posed to the worker agents.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
+        :param options: Valid recommendation option strings for label extraction in the value function.
+                        When provided, uses LabelWeightedSimilarity; otherwise falls back to TF-IDF.
         """
         from llmSHAP import DataHandler, BasicPromptCodec, ShapleyAttribution
         from llmSHAP.llm import OpenAIInterface
+        from formallymad.value_function import LabelWeightedSimilarity
 
-        agent_blocks = {agent.id: f"{rec.recommendation}. {rec.motivation}" for agent, rec in recommendations}
-        handler = DataHandler({"query": query} | agent_blocks, permanent_keys={"query"})
-        codec = BasicPromptCodec(system=self.system_prompt)
+        agent_ids = [agent.id for agent, _ in recommendations]
+        handler = DataHandler({agent.id: f"AGENT: {agent.id}\nRECOMENDATION: {rec.recommendation}.\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations})
+        codec = BasicPromptCodec(system=self.system_prompt.format(question=question))
         llm_interface = OpenAIInterface(model_name=self.model)
+        # value_function = LabelWeightedSimilarity(options, label_weight=0.8) if options is not None else None
+        # result = ShapleyAttribution(model=llm_interface, data_handler=handler, prompt_codec=codec, value_function=value_function, use_cache=True, num_threads=len(recommendations)*5, verbose=False, logging=True).attribution()
         result = ShapleyAttribution(model=llm_interface, data_handler=handler, prompt_codec=codec, use_cache=True, num_threads=len(recommendations)*5, verbose=False).attribution()
-        return result.output or "", {agent_id: result.attribution[agent_id]["score"] for agent_id in agent_blocks} # type: ignore
+        attribution_scores = {agent_id: result.attribution[agent_id]["score"] for agent_id in agent_ids}
+        return self.synthesize(question, recommendations), attribution_scores

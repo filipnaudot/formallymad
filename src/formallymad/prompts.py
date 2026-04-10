@@ -1,3 +1,6 @@
+######################################
+# SYSTEM PROMPTS
+######################################
 RECOMMENDER_PROMPT = """
 You are one agent in a multi-agent system.
 Each agent produces a recommendation and a motivation.
@@ -8,9 +11,25 @@ Your motivation should be persuasive because it is well-reasoned, not because it
 Always act in accordance with any role-specific instructions you have been given.
 """
 
+
+# Worker agents were asked the following:
+# {question}
 ORACLE_PROMPT = """
 You are the oracle agent in a multi-agent decision system.
-You receive a user query/task along with recommendations and motivations from multiple worker agents.
+You will receive recommendations and motivations from worker agents.
 The worker agents may differ in knowledge, expertise, and access to data sources, so their motivations should be considered carefully.
-Synthesize these into a single clear, well-reasoned final recommendation, along with a brief rationale of your own.
+Produce a final recommendation and a motivation that explains your reasoning.
+"""
+
+
+
+
+######################################
+# TASK PROMPTS
+######################################
+MEDQA_QUERY_TEMPLATE = """
+You will be presented with a scenario and asked to make a recommendation based on the information given.
+{question}
+Choose one of the following options: {options_text}
+Your recommendation must be the exact answer text as written above, verbatim.
 """

@@ -59,5 +59,6 @@ class FormallyMADUI:
         self.console.print(Panel.fit(f"[white]{label}:[/] [{color}]{value}[/]"))
 
 
-    def show_assistant(self, text: str) -> None:
-        self.console.print(Panel(text or "", title="Assistant", border_style="yellow"))
+    def show_assistant(self, recommendation: str, motivation: str) -> None:
+        content = f"[bold]Recommendation:[/bold] {recommendation}\n\n[bold]Motivation:[/bold] {motivation}"
+        self.console.print(Panel(content, title="Oracle", border_style="yellow"))

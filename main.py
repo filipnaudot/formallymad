@@ -19,7 +19,7 @@ def main() -> None:
         Agent(id="A6", strength=0.2),
     ]
 
-    oracle = Agent(id="oracle", system_prompt=ORACLE_PROMPT)
+    oracle = Agent(id="oracle", system_prompt=ORACLE_PROMPT, model="gpt-4o-mini")
     qbaf = QBAFResolver(workers, monte_carlo_permutations=10, semantics_aware=True, visualize=True)
 
     while True:
@@ -40,7 +40,7 @@ def main() -> None:
 
         with ui.loading("Oracle is synthesizing..."):
             final = oracle.synthesize(query, recommendations)
-        ui.show_assistant(final)
+        ui.show_assistant(final.recommendation, final.motivation)
 
 
 if __name__ == "__main__":
