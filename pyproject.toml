@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "rich>=13.0.0",
     "qbaf-py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git",
+    "llmshap[all]",
 ]
 
 [project.optional-dependencies]

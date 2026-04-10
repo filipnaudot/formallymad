@@ -54,6 +54,8 @@ class Agent:
     @property
     def id(self) -> str: return self._id
 
+    def update_strength(self, value: float) -> None: self.strength = value
+
 
     def recommend(self, query: str) -> Recommendation:
         """
@@ -83,11 +85,31 @@ class Agent:
         :param query: The original user query.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
         """
-        formatted_recommendations = "\n\n".join(f"[AGENT: {agent.id}] RECOMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
+        formatted_recommendations = "\n\n".join(f"[AGENT: {agent.id}] RECOMMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": self.system_prompt},
-                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{formatted_recommendations}"},],
+                      {"role": "user", "content": f"Query: {query}\n\nRecommendations:\n{formatted_recommendations}"}],
             max_completion_tokens=2000,
         )
         return response.choices[0].message.content or ""
+
+
+    def synthesize_with_attribution(self, query: str, recommendations: list[tuple["Agent", Recommendation]]) -> tuple[str, dict[str, float]]:
+        """
+        Run oracle synthesis and llmSHAP attribution in one pass.
+        Each agent's (recommendation + motivation) block is one unit of attribution.
+        Returns the oracle's final answer and a dict mapping agent_id -> llmSHAP score.
+
+        :param query: The original user query.
+        :param recommendations: List of (agent, recommendation) pairs from all workers.
+        """
+        from llmSHAP import DataHandler, BasicPromptCodec, ShapleyAttribution
+        from llmSHAP.llm import OpenAIInterface
+
+        agent_blocks = {agent.id: f"{rec.recommendation}. {rec.motivation}" for agent, rec in recommendations}
+        handler = DataHandler({"query": query} | agent_blocks, permanent_keys={"query"})
+        codec = BasicPromptCodec(system=self.system_prompt)
+        llm_interface = OpenAIInterface(model_name=self.model)
+        result = ShapleyAttribution(model=llm_interface, data_handler=handler, prompt_codec=codec, use_cache=True, num_threads=len(recommendations)*5, verbose=False).attribution()
+        return result.output or "", {agent_id: result.attribution[agent_id]["score"] for agent_id in agent_blocks} # type: ignore

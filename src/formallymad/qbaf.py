@@ -34,7 +34,9 @@ class _WinningToolSnapshot:
 
 @dataclass
 class _ToolStats:
-    """Running accumulators for tool and agent outcomes across all Monte Carlo permutations."""
+    """
+    Running accumulators for tool and agent outcomes across all Monte Carlo permutations.
+    """
     strength_sum_by_tool_name: dict[str, float]
     win_count_by_tool_name: dict[str, int]
     win_margin_sum_by_tool_name: dict[str, float]
@@ -57,9 +59,22 @@ class _ToolStats:
 
 
 
-class QBAFResolver:
-    """Resolves competing tool proposals via Monte Carlo QBAF evaluation."""
+def normalize_attribution_strengths(scores: dict[str, float]) -> dict[str, float]:
+    """
+    Min-max normalize llmSHAP attribution scores to [0, 1] for use as QBAF initial strengths.
+    If all scores are equal, returns 0.5 for all agents.
+    """
+    values = list(scores.values())
+    min_val, max_val = min(values), max(values)
+    if max_val == min_val:
+        return {k: 0.5 for k in scores}
+    return {k: (v - min_val) / (max_val - min_val) for k, v in scores.items()}
 
+
+class QBAFResolver:
+    """
+    Resolves competing tool proposals via Monte Carlo QBAF evaluation.
+    """
     def __init__(self,
                  agents: list[Agent],
                  *,
