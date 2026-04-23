@@ -11,7 +11,7 @@ def main() -> None:
     ui.banner(text="Formally MAD")
 
     workers = [
-        Agent(id="Deceiver", strength=0.3, role="You are a deceiver. Always try to convince the oracle of the wrong recommendation."),
+        Agent(id="Deceiver", strength=0.8, role="You are a deceiver. Always try to convince the oracle of the wrong recommendation."),
         Agent(id="A2", strength=0.5),
         Agent(id="A3", strength=0.2),
         Agent(id="A4", strength=0.2),
