@@ -1,3 +1,4 @@
+import csv
 import random
 from concurrent.futures import ThreadPoolExecutor
 
@@ -54,6 +55,74 @@ def _normalize_to_option(recommendation: str, options: list[str]) -> str:
     return recommendation
 
 
+def _majority_vote(agent_recommendations: list[tuple[Agent, str, str]]) -> str:
+    vote_counts: dict[str, int] = {}
+    for _, option, _ in agent_recommendations:
+        vote_counts[option] = vote_counts.get(option, 0) + 1
+    return max(vote_counts, key=lambda recommendation: vote_counts[recommendation])
+
+
+def run_benchmark(num_samples: int) -> None:
+    workers = [Agent(id="Deceiver1", model="gpt-4o-mini", role="You are a deceiver. Always try to convince the oracle of the wrong recommendation."),
+               Agent(id="Deceiver2", model="gpt-4o-mini", role="You are a deceiver. Always try to convince the oracle of the wrong recommendation."),
+               Agent(id="Deceiver3", model="gpt-4o-mini", role="You are a deceiver. Always try to convince the oracle of the wrong recommendation."),
+               Agent(id="Specialist", model="gpt-4o-mini", role="You are an experienced medical specialist with deep clinical expertise."),
+               Agent(id="EvidenceBased", model="gpt-4o-mini", role="You are an evidence-based practitioner. You rely strictly on established clinical guidelines and peer-reviewed research."),]
+    
+    oracle = Agent(id="oracle", system_prompt=PROMPTS.ORACLE_PROMPT, model="gpt-4o-mini")
+    qbaf = QBAFResolver(workers, monte_carlo_permutations=10, semantics_aware=True)
+    all_samples = MedQAItem.load()
+    samples = random.sample(all_samples, min(num_samples, len(all_samples)))
+    fieldnames = ["sample_id", "ground_truth", "majority_vote", "oracle", "qbaf",
+                  "majority_correct", "oracle_correct", "qbaf_correct"]
+    results = []
+    output_path = "benchmark_results.csv"
+    with open(output_path, "w", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for i, sample in enumerate(samples):
+            print(f"[{i + 1}/{num_samples}]")
+            options, query = _build_query(sample)
+
+            with ThreadPoolExecutor(max_workers=len(workers)) as pool:
+                futures = [(agent, pool.submit(agent.recommend, query)) for agent in workers]
+                recommendations = [(agent, future.result()) for agent, future in futures]
+
+            agent_recommendations = [(agent, _normalize_to_option(rec.recommendation, options), rec.motivation)
+                                     for agent, rec in recommendations]
+
+            oracle_rec, attribution_scores = oracle.synthesize_with_attribution(sample.question, recommendations, options=options)
+            oracle_answer = _normalize_to_option(oracle_rec.recommendation, options)
+
+            normalized = normalize_attribution_strengths(attribution_scores)
+            for worker in workers:
+                if worker.id in normalized:
+                    worker.update_strength(normalized[worker.id])
+
+            qbaf_answer, _ = qbaf.resolve(agent_recommendations)
+            majority_answer = _majority_vote(agent_recommendations)
+
+            row = {"sample_id": i,
+                   "ground_truth": sample.answer,
+                   "majority_vote": majority_answer,
+                   "oracle": oracle_answer,
+                   "qbaf": qbaf_answer,
+                   "majority_correct": majority_answer == sample.answer,
+                   "oracle_correct": oracle_answer == sample.answer,
+                   "qbaf_correct": qbaf_answer == sample.answer}
+            writer.writerow(row)
+            csv_file.flush()
+            results.append(row)
+            accuracy = lambda key: sum(result[key] for result in results) / len(results)
+            print(f"QBAF:     {accuracy('qbaf_correct'):.1%}")
+            print(f"Oracle:   {accuracy('oracle_correct'):.1%}")
+            print(f"Majority: {accuracy('majority_correct'):.1%}")
+            
+            for worker in workers: # reset the agent strength
+                worker.update_strength(0.5)
+
+
+
 def main() -> None:
     ui = FormallyMADUI()
     ui.banner(text="Formally MAD - Benchmark")
@@ -92,11 +161,13 @@ def main() -> None:
 
         normalized_strengths = _apply_attribution_strengths(workers, attribution_scores)
         winner, _ = qbaf.resolve(cleaned_recommendations)
+        majority_vote_winner = _majority_vote(cleaned_recommendations)
         ui.show_agent_metrics(qbaf.last_agent_stats, strength_by_agent_id=normalized_strengths)
         ui.show_result("QBAF winner", winner)
+        ui.show_result("Majority vote winner", majority_vote_winner)
         ui.show_assistant(final.recommendation, final.motivation)
         ui.show_result("Ground truth", f"{sample.answer_idx}. {sample.answer}", color="green")
 
 
 if __name__ == "__main__":
-    main()
+    run_benchmark(num_samples=25)

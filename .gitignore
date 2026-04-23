@@ -4,6 +4,7 @@ plots/
 __pycache__/
 *.py[codz]
 *$py.class
+benchmark_results.csv
 
 # C extensions
 *.so

@@ -44,13 +44,13 @@ class FormallyMADUI:
             table.add_column("Strength", style="yellow", no_wrap=True)
         table.add_column("Mean Influence", style="yellow", no_wrap=True)
         table.add_column("Influence Std", style="yellow", no_wrap=True)
-        table.add_column("Proposal Win Rate", style="yellow", no_wrap=True)
+        table.add_column("Recommendation Win Rate", style="yellow", no_wrap=True)
         for agent_id, stats in metrics:
             row = [agent_id]
             if strength_by_agent_id is not None:
                 strength = strength_by_agent_id.get(agent_id)
                 row.append(f"{strength:.4f}" if strength is not None else "-")
-            row += [f"{stats['mean_influence']:.4f}", f"{stats['influence_std']:.4f}", f"{stats['proposal_win_rate']:.4f}"]
+            row += [f"{stats['mean_influence']:.4f}", f"{stats['influence_std']:.4f}", f"{stats['recommendation_win_rate']:.4f}"]
             table.add_row(*row)
         self.console.print(table)
 
