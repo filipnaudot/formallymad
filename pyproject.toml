@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 visualize = [
-    "qbaf-py @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git#egg=qbaf-py[Visualizer]",
+    "qbaf-py[Visualizer] @ git+https://github.com/TimKam/Quantitative-Bipolar-Argumentation.git",
     "matplotlib",
 ]
 

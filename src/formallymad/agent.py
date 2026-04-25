@@ -85,7 +85,8 @@ class Agent:
         :param question: The original question posed to the worker agents.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
         """
-        formatted_recommendations = "\n\n".join(f"[AGENT: {agent.id}] RECOMMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
+        aliases = {agent.id: f"Agent{i}" for i, (agent, _) in enumerate(recommendations, 1)}
+        formatted_recommendations = "\n\n".join(f"[AGENT: {aliases[agent.id]}] RECOMMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
         messages = [{"role": "system", "content": self.system_prompt.format(question=question)},
                     {"role": "user", "content": formatted_recommendations}]
         response = self.client.responses.parse(model=self.model, input=messages, text_format=Recommendation) # type: ignore
@@ -108,8 +109,9 @@ class Agent:
         from llmSHAP.llm import OpenAIInterface
         from formallymad.value_function import LabelWeightedSimilarity
 
+        aliases = {agent.id: f"Agent{i}" for i, (agent, _) in enumerate(recommendations, 1)}
         agent_ids = [agent.id for agent, _ in recommendations]
-        handler = DataHandler({agent.id: f"AGENT: {agent.id}\nRECOMENDATION: {rec.recommendation}.\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations})
+        handler = DataHandler({agent.id: f"AGENT: {aliases[agent.id]}\nRECOMENDATION: {rec.recommendation}.\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations})
         codec = BasicPromptCodec(system=self.system_prompt.format(question=question))
         llm_interface = OpenAIInterface(model_name=self.model)
         # value_function = LabelWeightedSimilarity(options, label_weight=0.8) if options is not None else None
