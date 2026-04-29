@@ -21,15 +21,20 @@ class Agent:
                  id: str,
                  system_prompt: str = RECOMMENDER_PROMPT,
                  role: str | None = None,
+                 context: str = "",
                  model: str = "gpt-5",
                  api_key: str | None = None,
-                 strength: float = 0.5) -> None:
+                 strength: float = 0.5,
+                 tools: bool = False) -> None:
         self._id = id
         self.strength = strength
         self.model = model
+        self.tools = tools
         self.client = OpenAI(api_key=api_key or os.environ["OPENAI_API_KEY"], max_retries=10)
-        self.system_prompt = (f"YOUR ROLE: {role}\n\n" if role else "") + system_prompt
-        self._tools = self._build_tools()
+        self.system_prompt = ((f"YOUR ROLE: {role}\n\n" if role else "")
+                              + (f"CONTEXT:\n{context}\n\n" if context else "")
+                              + system_prompt)
+        self._tools = self._build_tools() if self.tools else []
 
 
     def _build_tools(self) -> list[dict]:
@@ -66,7 +71,10 @@ class Agent:
         """
         messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": query}]
         while True:
-            response = self.client.responses.parse(model=self.model, input=messages, tools=self._tools, text_format=Recommendation) # type: ignore
+            request = {"model": self.model, "input": messages, "text_format": Recommendation}
+            if self._tools:
+                request["tools"] = self._tools
+            response = self.client.responses.parse(**request) # type: ignore
             if response.output_parsed is not None:
                 return response.output_parsed
             tool_calls = [item for item in response.output if item.type == "function_call"]

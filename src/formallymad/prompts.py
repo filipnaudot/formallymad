@@ -27,7 +27,7 @@ Produce a final recommendation and a motivation that explains your reasoning.
 ######################################
 # TASK PROMPTS
 ######################################
-MEDQA_QUERY_TEMPLATE = """
+QUERY_TEMPLATE = """
 You will be presented with a scenario and asked to make a recommendation based on the information given.
 {question}
 Choose one of the following options: {options_text}
