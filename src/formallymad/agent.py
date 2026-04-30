@@ -86,7 +86,10 @@ class Agent:
                                  "output": json.dumps(result)})
 
 
-    def synthesize(self, question: str, recommendations: list[tuple["Agent", Recommendation]]) -> Recommendation:
+    def synthesize(self,
+                   question: str,
+                   recommendations: list[tuple["Agent", Recommendation]],
+                   options_text: str = "") -> Recommendation:
         """
         Synthesize all worker recommendations into a structured final Recommendation (oracle role).
 
@@ -95,13 +98,17 @@ class Agent:
         """
         aliases = {agent.id: f"Agent{i}" for i, (agent, _) in enumerate(recommendations, 1)}
         formatted_recommendations = "\n\n".join(f"[AGENT: {aliases[agent.id]}] RECOMMENDATION: {rec.recommendation}\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations)
-        messages = [{"role": "system", "content": self.system_prompt.format(question=question)},
+        messages = [{"role": "system", "content": self.system_prompt.format(question=question, options_text=options_text)},
                     {"role": "user", "content": formatted_recommendations}]
         response = self.client.responses.parse(model=self.model, input=messages, text_format=Recommendation) # type: ignore
         return response.output_parsed # type: ignore
 
 
-    def synthesize_with_attribution(self, question: str, recommendations: list[tuple["Agent", Recommendation]], options: list[str] | None = None) -> tuple[Recommendation, dict[str, float]]:
+    def synthesize_with_attribution(self,
+                                    question: str,
+                                    recommendations: list[tuple["Agent", Recommendation]],
+                                    options: list[str] | None = None,
+                                    options_text: str = "") -> tuple[Recommendation, dict[str, float]]:
         """
         Run llmSHAP attribution then produce a structured final Recommendation (oracle role).
         The question is embedded in the oracle system prompt so agent blocks are the sole attribution units.
@@ -110,20 +117,25 @@ class Agent:
 
         :param question: The original question posed to the worker agents.
         :param recommendations: List of (agent, recommendation) pairs from all workers.
-        :param options: Valid recommendation option strings for label extraction in the value function.
-                        When provided, uses LabelWeightedSimilarity; otherwise falls back to TF-IDF.
+        :param options: Valid recommendation option strings for structured recommendation matching in the value function.
+                        When provided, uses LabelWeightedSimilarity; otherwise falls back to embedding similarity.
         """
-        from llmSHAP import DataHandler, BasicPromptCodec, ShapleyAttribution
+        from llmSHAP import DataHandler, ShapleyAttribution, EmbeddingCosineSimilarity
         from llmSHAP.llm import OpenAIInterface
-        from formallymad.value_function import LabelWeightedSimilarity
+        from formallymad.utils import LabelWeightedSimilarity, RecommendationPromptCodec
 
         aliases = {agent.id: f"Agent{i}" for i, (agent, _) in enumerate(recommendations, 1)}
         agent_ids = [agent.id for agent, _ in recommendations]
         handler = DataHandler({agent.id: f"AGENT: {aliases[agent.id]}\nRECOMENDATION: {rec.recommendation}.\nMOTIVATION: {rec.motivation}" for agent, rec in recommendations})
-        codec = BasicPromptCodec(system=self.system_prompt.format(question=question))
-        llm_interface = OpenAIInterface(model_name=self.model)
-        # value_function = LabelWeightedSimilarity(options, label_weight=0.8) if options is not None else None
-        # result = ShapleyAttribution(model=llm_interface, data_handler=handler, prompt_codec=codec, value_function=value_function, use_cache=True, num_threads=len(recommendations)*5, verbose=False, logging=True).attribution()
-        result = ShapleyAttribution(model=llm_interface, data_handler=handler, prompt_codec=codec, use_cache=True, num_threads=len(recommendations)*5, verbose=False).attribution()
+        codec = RecommendationPromptCodec(system=self.system_prompt.format(question=question, options_text=options_text))
+        llm_interface = OpenAIInterface(model_name=self.model, text_format=Recommendation)
+        value_function = LabelWeightedSimilarity(options, label_weight=0.8) if options else EmbeddingCosineSimilarity()
+        result = ShapleyAttribution(model=llm_interface,
+                                    data_handler=handler,
+                                    prompt_codec=codec,
+                                    use_cache=True,
+                                    value_function=value_function,
+                                    num_threads=len(recommendations)*5,
+                                    verbose=False).attribution()
         attribution_scores = {agent_id: result.attribution[agent_id]["score"] for agent_id in agent_ids}
-        return self.synthesize(question, recommendations), attribution_scores
+        return self.synthesize(question, recommendations, options_text=options_text), attribution_scores

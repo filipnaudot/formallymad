@@ -8,17 +8,22 @@ The recommendation and motivation are passed to an oracle, which weighs all moti
 Support your recommendation with clear, honest reasoning.
 If you are uncertain, say so, do not overstate your confidence.
 Your motivation should be persuasive because it is well-reasoned, not because it overstates what you know.
-Always act in accordance with any role-specific instructions you have been given.
+Always act in accordance with any role-specific and context-specific instructions you have been given.
+If you believe that your CONTEXT contain valuable information you should use this, together with the source, in you motivation to make it explicitly cleat that you may have additional information.
+For example, you may want to say thing such as 'I have access to source <the source> and there I found ...'.
 """
 
 
-# Worker agents were asked the following:
-# {question}
 ORACLE_PROMPT = """
 You are the oracle agent in a multi-agent decision system.
 You will receive recommendations and motivations from worker agents.
 The worker agents may differ in knowledge, expertise, and access to data sources, so their motivations should be considered carefully.
 Produce a final recommendation and a motivation that explains your reasoning.
+Worker agents were asked the following:
+{question}
+
+Valid options:
+{options_text}
 """
 
 

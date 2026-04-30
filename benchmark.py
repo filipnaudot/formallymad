@@ -45,18 +45,18 @@ def _apply_attribution_strengths(workers: list[Agent], attribution_scores: dict[
     return normalized
 
 
-def _build_query(sample) -> tuple[list[str], str]:
+def _build_query(sample) -> tuple[list[str], str, str]:
     """
     Build a multiple-choice query.
     Options are taken directly from the dataset — no distractor generation needed.
 
     :param sample: A single question item.
-    :return: Tuple of (options list, formatted query string).
+    :return: Tuple of (options list, options text, formatted query string).
     """
     options = list(sample.options.values())
     options_text = "\n".join(f"  {key}. {value}" for key, value in sample.options.items())
     query = PROMPTS.QUERY_TEMPLATE.format(question=sample.question, options_text=options_text)
-    return options, query
+    return options, options_text, query
 
 
 def _normalize_to_option(recommendation: str, options: list[str]) -> str:
@@ -86,7 +86,7 @@ def run_benchmark(num_samples: int) -> None:
     oracle = Agent(id="oracle", system_prompt=PROMPTS.ORACLE_PROMPT, model="gpt-4o-mini")
     qbaf = QBAFResolver(WORKERS, monte_carlo_permutations=10, semantics_aware=True)
     samples = DATASET.load()[:num_samples]
-    fieldnames = ["sample_id", "ground_truth", "majority_vote", "oracle", "qbaf", "majority_correct", "oracle_correct", "qbaf_correct"]
+    fieldnames = ["sample_id", "ground_truth", "majority_vote", "oracle", "qbaf", "majority_correct", "oracle_correct", "qbaf_correct", "qbaf_oracle_agree", "qbaf_correct_oracle_wrong"]
     results = []
     output_path = "benchmark_results.csv"
     with open(output_path, "w", newline="") as csv_file:
@@ -94,7 +94,7 @@ def run_benchmark(num_samples: int) -> None:
         writer.writeheader()
         for i, sample in enumerate(samples):
             print(f"[{i + 1}/{len(samples)}]")
-            options, query = _build_query(sample)
+            options, options_text, query = _build_query(sample)
 
             with ThreadPoolExecutor(max_workers=len(WORKERS)) as pool:
                 futures = [(agent, pool.submit(agent.recommend, query)) for agent in WORKERS]
@@ -103,7 +103,8 @@ def run_benchmark(num_samples: int) -> None:
             agent_recommendations = [(agent, _normalize_to_option(rec.recommendation, options), rec.motivation)
                                      for agent, rec in recommendations]
 
-            oracle_rec, attribution_scores = oracle.synthesize_with_attribution(sample.question, recommendations, options=options)
+            oracle_rec, attribution_scores = oracle.synthesize_with_attribution(sample.question, recommendations,
+                                                                                options=options, options_text=options_text)
             oracle_answer = _normalize_to_option(oracle_rec.recommendation, options)
 
             normalized = normalize_attribution_strengths(attribution_scores)
@@ -121,11 +122,15 @@ def run_benchmark(num_samples: int) -> None:
                    "qbaf": qbaf_answer,
                    "majority_correct": majority_answer == sample.answer,
                    "oracle_correct": oracle_answer == sample.answer,
-                   "qbaf_correct": qbaf_answer == sample.answer}
+                   "qbaf_correct": qbaf_answer == sample.answer,
+                   "qbaf_oracle_agree": qbaf_answer == oracle_answer,
+                   "qbaf_correct_oracle_wrong": qbaf_answer == sample.answer and oracle_answer != sample.answer}
             writer.writerow(row)
             csv_file.flush()
             results.append(row)
             accuracy = lambda key: sum(result[key] for result in results) / len(results)
+            print(f"QBAF & Oracle Agreement: {accuracy('qbaf_oracle_agree'):.1%}")
+            print(f"QBAF Correct, Oracle Wrong: {accuracy('qbaf_correct_oracle_wrong'):.1%}")
             print(f"QBAF:     {accuracy('qbaf_correct'):.1%}")
             print(f"Oracle:   {accuracy('oracle_correct'):.1%}")
             print(f"Majority: {accuracy('majority_correct'):.1%}")
@@ -150,7 +155,7 @@ def main() -> None:
             break
 
         sample = random.choice(samples)
-        options, query = _build_query(sample)
+        options, options_text, query = _build_query(sample)
 
         with ui.loading("Collecting recommendations..."):
             with ThreadPoolExecutor(max_workers=len(WORKERS)) as pool:
@@ -161,7 +166,8 @@ def main() -> None:
         ui.show_proposals((agent.id, recommendation, motivation) for agent, recommendation, motivation in cleaned_recommendations)
 
         with ui.loading("Computing llmSHAP attribution..."):
-            final, attribution_scores = oracle.synthesize_with_attribution(sample.question, recommendations, options=options)
+            final, attribution_scores = oracle.synthesize_with_attribution(sample.question, recommendations,
+                                                                           options=options, options_text=options_text)
 
         normalized_strengths = _apply_attribution_strengths(WORKERS, attribution_scores)
         winner, _ = qbaf.resolve(cleaned_recommendations)
